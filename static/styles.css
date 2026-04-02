@@ -1,0 +1,155 @@
+:root {
+  --bg-1: #0e0713;
+  --bg-2: #24102d;
+  --line: #ffb6d055;
+  --text: #fff6fb;
+  --sub: #ffd9e8;
+  --accent: #ff5d95;
+  --accent-2: #ff9a55;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  color: var(--text);
+  font-family: "Avenir Next", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  background:
+    radial-gradient(circle at 20% 15%, #ff7cb221, transparent 42%),
+    radial-gradient(circle at 88% 12%, #ffb26624, transparent 45%),
+    linear-gradient(145deg, var(--bg-1), var(--bg-2));
+}
+
+.phone-stage {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 0.75rem;
+}
+
+.display-shell {
+  width: min(100vw - 1rem, calc((100vh - 1.5rem) * 9 / 16));
+  height: min(100vh - 1.5rem, calc((100vw - 1rem) * 16 / 9));
+  max-width: 420px;
+  aspect-ratio: 9 / 16;
+  position: relative;
+  border: 1px solid #ffc4de88;
+  border-radius: 22px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 16px 48px #00000066, 0 0 40px #ff7eae55;
+}
+
+.character-rig {
+  position: absolute;
+  inset: 0;
+  background: #000;
+}
+
+.character-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  opacity: 1;
+  transition: opacity 150ms ease, filter 150ms ease;
+}
+
+.character-video.switching {
+  opacity: 0.86;
+  filter: saturate(0.97);
+}
+
+.hud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.hud.top {
+  top: 0;
+  padding: 1rem 1rem 0.7rem;
+  background: linear-gradient(to bottom, #00000099, transparent);
+}
+
+.hud.top h1 {
+  margin: 0;
+  font-size: clamp(1rem, 2.8vw, 1.2rem);
+  line-height: 1.2;
+}
+
+.hud.top p {
+  margin: 0.1rem 0 0;
+  font-size: clamp(0.78rem, 2.2vw, 0.88rem);
+  color: var(--sub);
+}
+
+.hud.bottom {
+  bottom: 0;
+  padding: 0.8rem;
+  background: linear-gradient(to top, #09060ecc, #09060e55 62%, transparent);
+  pointer-events: auto;
+}
+
+.voice-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+  margin-bottom: 0.45rem;
+}
+
+.voice-controls select {
+  grid-column: 1 / -1;
+}
+
+.voice-controls button,
+.voice-controls select {
+  width: 100%;
+  border: 1px solid #ffffff36;
+  background: #140d1fcc;
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0.58rem 0.66rem;
+  font-size: 0.86rem;
+}
+
+.voice-controls button {
+  cursor: pointer;
+  background: linear-gradient(135deg, #1b102a, #2a1638);
+}
+
+#liveStartButton.live-on {
+  border-color: #5dffb4;
+  box-shadow: 0 0 0 2px #5dffb455;
+}
+
+.voice-controls button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.voice-status {
+  min-height: 1.25em;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  color: var(--sub);
+  text-shadow: 0 1px 2px #000a;
+}
+
+@media (max-width: 420px) {
+  .display-shell {
+    border-radius: 16px;
+  }
+}

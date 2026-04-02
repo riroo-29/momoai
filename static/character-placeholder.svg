@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1080" role="img" aria-label="character placeholder">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4c1f2d"/>
+      <stop offset="100%" stop-color="#a53e5f"/>
+    </linearGradient>
+    <linearGradient id="k" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffd5e3"/>
+      <stop offset="100%" stop-color="#f094b6"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="1080" fill="url(#bg)"/>
+  <circle cx="360" cy="340" r="130" fill="url(#k)" opacity="0.9"/>
+  <rect x="210" y="480" width="300" height="380" rx="120" fill="url(#k)" opacity="0.9"/>
+  <text x="50%" y="930" text-anchor="middle" font-size="44" fill="#fff6fb" font-family="sans-serif">character.png を置くと差し替えできます</text>
+</svg>

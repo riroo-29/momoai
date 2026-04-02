@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>もも Voice</title>
+    <link rel="stylesheet" href="/styles.css?v=20260401s" />
+  </head>
+  <body>
+    <main class="phone-stage" aria-label="焔丸AI 音声会話ディスプレイ">
+      <section class="display-shell">
+        <div id="characterRig" class="character-rig video-active">
+          <video
+            id="characterVideo"
+            class="character-video"
+            src="/voice_idle.mp4?v=20260401q"
+            data-idle-src="/voice_idle.mp4?v=20260401q"
+            data-speak-src="/voice_speaking.mp4?v=20260401q"
+            muted
+            loop
+            autoplay
+            playsinline
+            webkit-playsinline
+            preload="auto"
+          ></video>
+        </div>
+
+        <div class="hud top">
+          <h1>もも</h1>
+        </div>
+
+        <div class="hud bottom">
+          <div class="voice-controls">
+            <button id="liveStartButton" type="button">会話モード開始</button>
+            <button id="liveStopButton" type="button" disabled>会話モード停止</button>
+            <select id="liveVoiceSelect" aria-label="Live音声選択">
+              <option value="Kore">Kore</option>
+              <option value="Puck">Puck</option>
+              <option value="Leda">Leda</option>
+              <option value="Zephyr">Zephyr</option>
+              <option value="Charon">Charon</option>
+              <option value="Fenrir">Fenrir</option>
+              <option value="Aoede">Aoede</option>
+              <option value="Orus">Orus</option>
+            </select>
+          </div>
+          <div id="voiceStatus" class="voice-status">準備完了。会話モード開始を押してマイク許可してください。</div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js?v=20260401t"></script>
+  </body>
+</html>
