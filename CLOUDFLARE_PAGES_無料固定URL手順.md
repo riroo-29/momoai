@@ -26,7 +26,7 @@ Pages の `*.pages.dev` を使います。
 ## 3. 環境変数（Production）
 - `GEMINI_API_KEY` = あなたのキー
 - `GEMINI_MODEL` = `gemini-2.5-flash`（任意）
-- `GEMINI_LIVE_MODEL` = `gemini-live-2.5-flash-preview`（任意）
+- `GEMINI_LIVE_MODEL` = `gemini-2.0-flash-live-001`（任意）
 
 設定後 `Save and Deploy`。
 

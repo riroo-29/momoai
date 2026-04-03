@@ -9,7 +9,7 @@ HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8000"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-live-2.5-flash-preview")
+GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-2.0-flash-live-001")
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
@@ -29,6 +29,20 @@ SYSTEM_PROMPT = """
 - 返答は短め〜中くらい（2〜6文）
 - 最初に共感、次に提案、最後に小さな一言で背中を押す
 """.strip()
+
+
+def normalize_live_model_name(name: str) -> str:
+    raw = (name or "").strip()
+    if not raw:
+        return "gemini-2.0-flash-live-001"
+
+    no_prefix = raw[7:] if raw.startswith("models/") else raw
+    aliases = {
+        "gemini-2.5-flash-live-preview": "gemini-2.0-flash-live-001",
+        "gemini-3.1-flash-live-preview": "gemini-2.0-flash-live-001",
+        "gemini-live-2.5-flash-preview": "gemini-2.0-flash-live-001",
+    }
+    return aliases.get(no_prefix, no_prefix)
 
 
 def build_user_text(message: str, history: list[dict]) -> str:
@@ -133,7 +147,7 @@ class AppHandler(SimpleHTTPRequestHandler):
                 200,
                 {
                     "apiKey": GEMINI_API_KEY,
-                    "liveModel": GEMINI_LIVE_MODEL,
+                    "liveModel": normalize_live_model_name(GEMINI_LIVE_MODEL),
                 },
             )
             return
