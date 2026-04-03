@@ -7,6 +7,7 @@ const liveStopButton = document.getElementById("liveStopButton");
 const liveVoiceSelect = document.getElementById("liveVoiceSelect");
 const voiceStatus = document.getElementById("voiceStatus");
 const fullscreenButton = document.getElementById("fullscreenButton");
+let pseudoFullscreen = false;
 
 let liveSocket = null;
 let liveActive = false;
@@ -48,19 +49,28 @@ async function toggleFullscreen() {
     if (fsEl) {
       if (document.exitFullscreen) await document.exitFullscreen();
       else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      pseudoFullscreen = false;
+      document.body.classList.remove("pseudo-fullscreen");
       return;
     }
     if (target.requestFullscreen) {
       await target.requestFullscreen();
+      pseudoFullscreen = false;
+      document.body.classList.remove("pseudo-fullscreen");
       return;
     }
     if (target.webkitRequestFullscreen) {
       target.webkitRequestFullscreen();
+      pseudoFullscreen = false;
+      document.body.classList.remove("pseudo-fullscreen");
       return;
     }
   } catch (_) {
     // noop
   }
+  // iPhone等でFullscreen APIが使えない場合のフォールバック
+  pseudoFullscreen = !pseudoFullscreen;
+  document.body.classList.toggle("pseudo-fullscreen", pseudoFullscreen);
 }
 
 function normalizeLiveModelName(name) {
@@ -622,6 +632,15 @@ liveStopButton?.addEventListener("click", () => {
 fullscreenButton?.addEventListener("click", () => {
   toggleFullscreen();
 });
+
+for (const ev of ["fullscreenchange", "webkitfullscreenchange"]) {
+  document.addEventListener(ev, () => {
+    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (!fsEl && !pseudoFullscreen) {
+      document.body.classList.remove("pseudo-fullscreen");
+    }
+  });
+}
 
 for (const ev of ["pause", "ended", "stalled"]) {
   for (const v of [characterVideo, characterVideoBuffer]) {

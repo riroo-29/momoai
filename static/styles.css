@@ -47,6 +47,19 @@ body {
   box-shadow: 0 16px 48px #00000066, 0 0 40px #ff7eae55;
 }
 
+body.pseudo-fullscreen .phone-stage {
+  padding: 0;
+}
+
+body.pseudo-fullscreen .display-shell {
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+}
+
 .character-rig {
   position: absolute;
   inset: 0;
@@ -149,8 +162,8 @@ body {
 
 .fullscreen-btn {
   position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 0.7rem);
   right: 0.7rem;
-  bottom: 4.8rem;
   z-index: 5;
   width: 2.2rem;
   height: 2.2rem;
@@ -173,5 +186,9 @@ body {
 @media (max-width: 420px) {
   .display-shell {
     border-radius: 16px;
+  }
+
+  body.pseudo-fullscreen .display-shell {
+    border-radius: 0;
   }
 }
