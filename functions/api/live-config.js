@@ -10,11 +10,10 @@ function json(data, status = 200) {
 
 export async function onRequestGet(context) {
   const apiKey = context.env.GEMINI_API_KEY || "";
-  const liveModel = context.env.GEMINI_LIVE_MODEL || "gemini-3.1-flash-live-preview";
+  const liveModel = context.env.GEMINI_LIVE_MODEL || "gemini-live-2.5-flash-preview";
 
   return json({
     apiKey,
     liveModel,
   });
 }
-

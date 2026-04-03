@@ -26,7 +26,7 @@ Pages の `*.pages.dev` を使います。
 ## 3. 環境変数（Production）
 - `GEMINI_API_KEY` = あなたのキー
 - `GEMINI_MODEL` = `gemini-2.5-flash`（任意）
-- `GEMINI_LIVE_MODEL` = `gemini-3.1-flash-live-preview`（任意）
+- `GEMINI_LIVE_MODEL` = `gemini-live-2.5-flash-preview`（任意）
 
 設定後 `Save and Deploy`。
 
@@ -42,4 +42,3 @@ Pages の `*.pages.dev` を使います。
 ## 6. 補足
 - APIキーはブラウザから到達できるフローを含むため、公開範囲は最小化してください。
 - 将来本番運用する場合は、サーバー側トークン発行方式へ変更推奨です。
-

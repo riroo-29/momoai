@@ -95,7 +95,7 @@ cd ai_character_web
 5. Environment Variables（Production）を追加
    - `GEMINI_API_KEY` = あなたのAPIキー
    - `GEMINI_MODEL` = `gemini-2.5-flash`（任意）
-   - `GEMINI_LIVE_MODEL` = `gemini-3.1-flash-live-preview`（任意）
+   - `GEMINI_LIVE_MODEL` = `gemini-live-2.5-flash-preview`（任意）
 6. `Save and Deploy`
 
 固定URL例:

@@ -28,9 +28,24 @@ let ttsFallbackTimer = null;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
+const FALLBACK_LIVE_MODEL = "models/gemini-live-2.5-flash-preview";
 
 function setVoiceStatus(text) {
   if (voiceStatus) voiceStatus.textContent = text || "";
+}
+
+function normalizeLiveModelName(name) {
+  const raw = (name || "").trim();
+  if (!raw) return FALLBACK_LIVE_MODEL;
+
+  const noPrefix = raw.startsWith("models/") ? raw.slice("models/".length) : raw;
+  const aliases = new Map([
+    ["gemini-2.5-flash-live-preview", "gemini-live-2.5-flash-preview"],
+    ["gemini-3.1-flash-live-preview", "gemini-live-2.5-flash-preview"],
+  ]);
+
+  const normalized = aliases.get(noPrefix) || noPrefix;
+  return `models/${normalized}`;
 }
 
 function speakWithBrowserTTS(text) {
@@ -378,7 +393,7 @@ async function startLiveMode() {
     liveSocket = new WebSocket(wsUrl);
     liveSocket.binaryType = "arraybuffer";
 
-    const modelName = cfg.liveModel.startsWith("models/") ? cfg.liveModel : `models/${cfg.liveModel}`;
+    const modelName = normalizeLiveModelName(cfg.liveModel);
 
     liveSocket.onopen = () => {
       const setupMessage = {
