@@ -10,13 +10,13 @@ function json(data, status = 200) {
 
 function normalizeLiveModelName(name) {
   const raw = (name || "").trim();
-  if (!raw) return "gemini-2.0-flash-live-001";
+  if (!raw) return "gemini-3.1-flash-live-preview";
 
   const noPrefix = raw.startsWith("models/") ? raw.slice("models/".length) : raw;
   const aliases = new Map([
-    ["gemini-2.5-flash-live-preview", "gemini-2.0-flash-live-001"],
-    ["gemini-3.1-flash-live-preview", "gemini-2.0-flash-live-001"],
-    ["gemini-live-2.5-flash-preview", "gemini-2.0-flash-live-001"],
+    ["gemini-2.5-flash-live-preview", "gemini-3.1-flash-live-preview"],
+    ["gemini-live-2.5-flash-preview", "gemini-3.1-flash-live-preview"],
+    ["gemini-2.0-flash-live-001", "gemini-3.1-flash-live-preview"],
   ]);
 
   return aliases.get(noPrefix) || noPrefix;

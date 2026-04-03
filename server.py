@@ -9,7 +9,7 @@ HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8000"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-2.0-flash-live-001")
+GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
@@ -34,13 +34,13 @@ SYSTEM_PROMPT = """
 def normalize_live_model_name(name: str) -> str:
     raw = (name or "").strip()
     if not raw:
-        return "gemini-2.0-flash-live-001"
+        return "gemini-3.1-flash-live-preview"
 
     no_prefix = raw[7:] if raw.startswith("models/") else raw
     aliases = {
-        "gemini-2.5-flash-live-preview": "gemini-2.0-flash-live-001",
-        "gemini-3.1-flash-live-preview": "gemini-2.0-flash-live-001",
-        "gemini-live-2.5-flash-preview": "gemini-2.0-flash-live-001",
+        "gemini-2.5-flash-live-preview": "gemini-3.1-flash-live-preview",
+        "gemini-live-2.5-flash-preview": "gemini-3.1-flash-live-preview",
+        "gemini-2.0-flash-live-001": "gemini-3.1-flash-live-preview",
     }
     return aliases.get(no_prefix, no_prefix)
 

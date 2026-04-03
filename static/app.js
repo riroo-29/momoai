@@ -28,7 +28,7 @@ let ttsFallbackTimer = null;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
-const FALLBACK_LIVE_MODEL = "models/gemini-2.0-flash-live-001";
+const FALLBACK_LIVE_MODEL = "models/gemini-3.1-flash-live-preview";
 
 function setVoiceStatus(text) {
   if (voiceStatus) voiceStatus.textContent = text || "";
@@ -40,9 +40,9 @@ function normalizeLiveModelName(name) {
 
   const noPrefix = raw.startsWith("models/") ? raw.slice("models/".length) : raw;
   const aliases = new Map([
-    ["gemini-2.5-flash-live-preview", "gemini-2.0-flash-live-001"],
-    ["gemini-3.1-flash-live-preview", "gemini-2.0-flash-live-001"],
-    ["gemini-live-2.5-flash-preview", "gemini-2.0-flash-live-001"],
+    ["gemini-2.5-flash-live-preview", "gemini-3.1-flash-live-preview"],
+    ["gemini-live-2.5-flash-preview", "gemini-3.1-flash-live-preview"],
+    ["gemini-2.0-flash-live-001", "gemini-3.1-flash-live-preview"],
   ]);
 
   const normalized = aliases.get(noPrefix) || noPrefix;
