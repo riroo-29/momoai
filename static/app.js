@@ -1,4 +1,5 @@
 const characterVideo = document.getElementById("characterVideo");
+const characterVideoBuffer = document.getElementById("characterVideoBuffer");
 const characterRig = document.getElementById("characterRig");
 
 const liveStartButton = document.getElementById("liveStartButton");
@@ -28,7 +29,8 @@ let lastPcmPlaybackAt = 0;
 let ttsFallbackTimer = null;
 let minSpeakHoldUntil = 0;
 let idleSwitchTimer = null;
-const preloadPromises = new Map();
+let activeVideo = characterVideo;
+let standbyVideo = characterVideoBuffer;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
@@ -72,81 +74,83 @@ function speakWithBrowserTTS(text) {
   }
 }
 
-function configureCharacterVideoElement() {
-  if (!characterVideo) return;
-  characterVideo.muted = true;
-  characterVideo.defaultMuted = true;
-  characterVideo.playsInline = true;
-  characterVideo.loop = true;
-  characterVideo.autoplay = true;
-  characterVideo.preload = "auto";
-  characterVideo.setAttribute("muted", "");
-  characterVideo.setAttribute("playsinline", "");
-  characterVideo.setAttribute("webkit-playsinline", "");
+function configureVideoElement(video) {
+  if (!video) return;
+  video.muted = true;
+  video.defaultMuted = true;
+  video.playsInline = true;
+  video.loop = true;
+  video.autoplay = true;
+  video.preload = "auto";
+  video.setAttribute("muted", "");
+  video.setAttribute("playsinline", "");
+  video.setAttribute("webkit-playsinline", "");
 }
 
-function ensureVideoReady(src) {
-  if (!src) return Promise.resolve(false);
-  if (preloadPromises.has(src)) return preloadPromises.get(src);
+function ensureVideoReady(video, src) {
+  if (!video || !src) return Promise.resolve(false);
+  configureVideoElement(video);
 
-  const probe = document.createElement("video");
-  probe.muted = true;
-  probe.defaultMuted = true;
-  probe.playsInline = true;
-  probe.preload = "auto";
-  probe.src = src;
-
-  const p = new Promise((resolve) => {
+  return new Promise((resolve) => {
     let done = false;
     const finish = (ok) => {
       if (done) return;
       done = true;
-      // 失敗結果をキャッシュし続けると以後ずっと切替不能になるため、
-      // readyにならなかった場合は都度再試行できるようにする。
-      if (!ok) preloadPromises.delete(src);
+      video.removeEventListener("canplay", onCanPlay);
+      video.removeEventListener("error", onError);
       resolve(ok);
     };
 
-    probe.addEventListener("canplay", () => finish(true), { once: true });
-    probe.addEventListener("error", () => finish(false), { once: true });
+    const onCanPlay = () => finish(true);
+    const onError = () => finish(false);
+    video.addEventListener("canplay", onCanPlay, { once: true });
+    video.addEventListener("error", onError, { once: true });
     setTimeout(() => finish(false), 4000);
-    probe.load();
+    video.src = src;
+    video.load();
   });
-
-  preloadPromises.set(src, p);
-  return p;
 }
 
 async function swapCharacterVideoSource(src) {
-  if (!characterVideo) return;
-  configureCharacterVideoElement();
+  if (!activeVideo || !standbyVideo) return;
+  configureVideoElement(activeVideo);
+  configureVideoElement(standbyVideo);
 
-  if (currentCharacterVideoSrc === src && characterVideo.currentSrc) {
-    characterVideo.play().catch(() => {});
+  if (currentCharacterVideoSrc === src && activeVideo.currentSrc) {
+    activeVideo.play().catch(() => {});
     return;
   }
 
   const token = ++videoSwitchToken;
-  characterVideo.classList.add("switching");
+  const nextVideo = standbyVideo;
+  const prevVideo = activeVideo;
+  nextVideo.classList.add("switching");
 
-  const ready = await ensureVideoReady(src);
-  if (token !== videoSwitchToken || !characterVideo) return;
+  const ready = await ensureVideoReady(nextVideo, src);
+  if (token !== videoSwitchToken || !nextVideo || !prevVideo) return;
   if (!ready) {
-    characterVideo.classList.remove("switching");
+    nextVideo.classList.remove("switching");
     return;
   }
 
-  characterVideo.src = src;
+  nextVideo.classList.remove("is-hidden");
+  prevVideo.classList.add("is-hidden");
+  nextVideo.classList.remove("switching");
+  nextVideo.currentTime = 0;
+  nextVideo.play().catch(() => {});
+
+  activeVideo = nextVideo;
+  standbyVideo = prevVideo;
   currentCharacterVideoSrc = src;
-  characterVideo.play().catch(() => {});
-  requestAnimationFrame(() => {
-    if (token !== videoSwitchToken || !characterVideo) return;
-    characterVideo.classList.remove("switching");
-  });
+
+  setTimeout(() => {
+    standbyVideo.pause();
+    standbyVideo.currentTime = 0;
+  }, 120);
 }
 
 function setVoiceVideoMode(nextMode) {
-  if (!characterRig || !characterVideo) return;
+  if (!characterRig || !activeVideo || !standbyVideo) return;
   const showSpeak = nextMode === "speak";
   const targetSrc = showSpeak ? speakVideoSrc : idleVideoSrc;
 
@@ -173,7 +177,7 @@ function setVoiceVideoMode(nextMode) {
 }
 
 function ensureIdleVideoPlayback() {
-  if (!characterVideo) return;
+  if (!activeVideo) return;
   if (currentVoiceVideoMode !== "idle") return;
   setVoiceVideoMode("idle");
 }
@@ -594,21 +598,27 @@ liveStopButton?.addEventListener("click", () => {
 });
 
 for (const ev of ["pause", "ended", "stalled"]) {
-  characterVideo?.addEventListener(ev, () => {
-    if (currentVoiceVideoMode === "speak") {
-      characterVideo.play().catch(() => {});
-      return;
-    }
-    ensureIdleVideoPlayback();
-  });
+  for (const v of [characterVideo, characterVideoBuffer]) {
+    v?.addEventListener(ev, () => {
+      if (v !== activeVideo) return;
+      if (currentVoiceVideoMode === "speak") {
+        activeVideo?.play().catch(() => {});
+        return;
+      }
+      ensureIdleVideoPlayback();
+    });
+  }
 }
 
-characterVideo?.addEventListener("error", () => {
-  // デコード失敗時に黒画面へ落ちないよう待機動画へ戻す
-  currentCharacterVideoSrc = "";
-  currentVoiceVideoMode = "idle";
-  swapCharacterVideoSource(idleVideoSrc).catch(() => {});
-});
+for (const v of [characterVideo, characterVideoBuffer]) {
+  v?.addEventListener("error", () => {
+    if (v !== activeVideo) return;
+    // アクティブ側で失敗したときは待機動画へ強制復帰
+    currentCharacterVideoSrc = "";
+    currentVoiceVideoMode = "idle";
+    swapCharacterVideoSource(idleVideoSrc).catch(() => {});
+  });
+}
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
@@ -628,6 +638,12 @@ for (const evt of ["click", "touchstart", "keydown"]) {
   );
 }
 
-configureCharacterVideoElement();
-setVoiceVideoMode("idle");
+configureVideoElement(characterVideo);
+configureVideoElement(characterVideoBuffer);
+characterVideo?.classList.remove("is-hidden");
+characterVideoBuffer?.classList.add("is-hidden");
+currentCharacterVideoSrc = idleVideoSrc;
+activeVideo = characterVideo;
+standbyVideo = characterVideoBuffer;
+characterVideo?.play().catch(() => {});
 setVoiceStatus("準備完了。会話モード開始を押してマイク許可してください。");

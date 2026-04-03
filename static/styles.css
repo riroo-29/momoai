@@ -62,12 +62,11 @@ body {
   backface-visibility: hidden;
   transform: translateZ(0);
   opacity: 1;
-  transition: opacity 150ms ease, filter 150ms ease;
+  transition: opacity 120ms ease;
 }
 
-.character-video.switching {
-  opacity: 1;
-  filter: none;
+.character-video.is-hidden {
+  opacity: 0;
 }
 
 .hud {
