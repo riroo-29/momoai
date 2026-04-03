@@ -6,6 +6,7 @@ const liveStartButton = document.getElementById("liveStartButton");
 const liveStopButton = document.getElementById("liveStopButton");
 const liveVoiceSelect = document.getElementById("liveVoiceSelect");
 const voiceStatus = document.getElementById("voiceStatus");
+const fullscreenButton = document.getElementById("fullscreenButton");
 
 let liveSocket = null;
 let liveActive = false;
@@ -38,6 +39,28 @@ const FALLBACK_LIVE_MODEL = "models/gemini-3.1-flash-live-preview";
 
 function setVoiceStatus(text) {
   if (voiceStatus) voiceStatus.textContent = text || "";
+}
+
+async function toggleFullscreen() {
+  const target = document.querySelector(".display-shell") || document.documentElement;
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+  try {
+    if (fsEl) {
+      if (document.exitFullscreen) await document.exitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      return;
+    }
+    if (target.requestFullscreen) {
+      await target.requestFullscreen();
+      return;
+    }
+    if (target.webkitRequestFullscreen) {
+      target.webkitRequestFullscreen();
+      return;
+    }
+  } catch (_) {
+    // noop
+  }
 }
 
 function normalizeLiveModelName(name) {
@@ -595,6 +618,9 @@ liveStartButton?.addEventListener("click", () => startLiveMode());
 liveStopButton?.addEventListener("click", () => {
   stopLiveMode(true);
   setVoiceStatus("会話モードを停止しました");
+});
+fullscreenButton?.addEventListener("click", () => {
+  toggleFullscreen();
 });
 
 for (const ev of ["pause", "ended", "stalled"]) {

@@ -147,6 +147,29 @@ body {
   text-shadow: 0 1px 2px #000a;
 }
 
+.fullscreen-btn {
+  position: absolute;
+  right: 0.7rem;
+  bottom: 4.8rem;
+  z-index: 5;
+  width: 2.2rem;
+  height: 2.2rem;
+  border: 1px solid #ffffff4a;
+  border-radius: 0.5rem;
+  background: #120d1ac9;
+  color: #fff6fb;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  backdrop-filter: blur(4px);
+}
+
+.fullscreen-btn:hover {
+  border-color: #ffffff8a;
+}
+
 @media (max-width: 420px) {
   .display-shell {
     border-radius: 16px;
