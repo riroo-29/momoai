@@ -66,8 +66,8 @@ body {
 }
 
 .character-video.switching {
-  opacity: 0.86;
-  filter: saturate(0.97);
+  opacity: 1;
+  filter: none;
 }
 
 .hud {

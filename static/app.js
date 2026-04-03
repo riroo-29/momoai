@@ -14,6 +14,7 @@ let micSource = null;
 let processor = null;
 let silentGain = null;
 let playbackAnalyser = null;
+let playbackGain = null;
 let micStarted = false;
 let nextPlayAt = 0;
 
@@ -25,6 +26,8 @@ let currentCharacterVideoSrc = "";
 let videoSwitchToken = 0;
 let lastPcmPlaybackAt = 0;
 let ttsFallbackTimer = null;
+let minSpeakHoldUntil = 0;
+let idleSwitchTimer = null;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
@@ -81,16 +84,6 @@ function configureCharacterVideoElement() {
   characterVideo.setAttribute("webkit-playsinline", "");
 }
 
-function preloadVideoSource(src) {
-  const probe = document.createElement("video");
-  probe.muted = true;
-  probe.defaultMuted = true;
-  probe.playsInline = true;
-  probe.preload = "auto";
-  probe.src = src;
-  probe.load();
-}
-
 function swapCharacterVideoSource(src) {
   if (!characterVideo) return;
   configureCharacterVideoElement();
@@ -114,21 +107,35 @@ function swapCharacterVideoSource(src) {
 
   characterVideo.addEventListener("canplay", finish, { once: true });
   characterVideo.src = src;
-  characterVideo.load();
+  characterVideo.play().catch(() => {});
   currentCharacterVideoSrc = src;
 
-  setTimeout(finish, 260);
+  setTimeout(finish, 140);
 }
 
 function setVoiceVideoMode(nextMode) {
   if (!characterRig || !characterVideo) return;
+  if (nextMode === "idle") {
+    const nowMs = Date.now();
+    if (nowMs < minSpeakHoldUntil) {
+      if (idleSwitchTimer) clearTimeout(idleSwitchTimer);
+      idleSwitchTimer = setTimeout(() => {
+        idleSwitchTimer = null;
+        setVoiceVideoMode("idle");
+      }, Math.max(30, minSpeakHoldUntil - nowMs));
+      return;
+    }
+  } else if (idleSwitchTimer) {
+    clearTimeout(idleSwitchTimer);
+    idleSwitchTimer = null;
+  }
+
+  if (currentVoiceVideoMode === nextMode) return;
   currentVoiceVideoMode = nextMode;
   const showSpeak = nextMode === "speak";
 
   characterRig.classList.add("video-active");
   const targetSrc = showSpeak ? speakVideoSrc : idleVideoSrc;
-
-  preloadVideoSource(showSpeak ? idleVideoSrc : speakVideoSrc);
   swapCharacterVideoSource(targetSrc);
 }
 
@@ -140,6 +147,7 @@ function ensureIdleVideoPlayback() {
 
 function scheduleSpeakVideo(startAt, durationSec) {
   if (!audioContext) return;
+  minSpeakHoldUntil = Math.max(minSpeakHoldUntil, Date.now() + Math.ceil((durationSec + 0.18) * 1000));
   speechVideoEndAt = Math.max(speechVideoEndAt, startAt + durationSec + 0.03);
   setVoiceVideoMode("speak");
 
@@ -160,6 +168,7 @@ function scheduleSpeakVideo(startAt, durationSec) {
 
 function bumpSpeakFallback(holdMs = 900) {
   if (!liveActive) return;
+  minSpeakHoldUntil = Math.max(minSpeakHoldUntil, Date.now() + Math.max(350, holdMs));
   setVoiceVideoMode("speak");
   if (speakFallbackTimer) clearTimeout(speakFallbackTimer);
   speakFallbackTimer = setTimeout(() => {
@@ -245,6 +254,10 @@ async function playPcmInt16(pcm16, sampleRate = 24000) {
   if (!playbackAnalyser) {
     playbackAnalyser = audioContext.createAnalyser();
     playbackAnalyser.fftSize = 1024;
+    playbackGain = audioContext.createGain();
+    playbackGain.gain.value = 1.0;
+    playbackAnalyser.connect(playbackGain);
+    playbackGain.connect(audioContext.destination);
   }
 
   const float32 = new Float32Array(pcm16.length);
@@ -256,10 +269,13 @@ async function playPcmInt16(pcm16, sampleRate = 24000) {
   const source = audioContext.createBufferSource();
   source.buffer = buffer;
   source.connect(playbackAnalyser);
-  playbackAnalyser.connect(audioContext.destination);
 
   const now = audioContext.currentTime;
-  const startAt = Math.max(now + 0.01, nextPlayAt);
+  const prerollSec = 0.12;
+  if (!nextPlayAt || nextPlayAt < now - 0.25) {
+    nextPlayAt = now + prerollSec;
+  }
+  const startAt = Math.max(now + prerollSec, nextPlayAt);
   source.start(startAt);
   scheduleSpeakVideo(startAt, buffer.duration);
   nextPlayAt = startAt + buffer.duration;
@@ -321,7 +337,7 @@ async function startMicStreaming() {
 
   micSource = audioContext.createMediaStreamSource(micStream);
 
-  processor = audioContext.createScriptProcessor(4096, 1, 1);
+  processor = audioContext.createScriptProcessor(2048, 1, 1);
   processor.onaudioprocess = (event) => {
     if (!liveSocket || liveSocket.readyState !== WebSocket.OPEN) return;
 
