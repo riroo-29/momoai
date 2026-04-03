@@ -28,6 +28,7 @@ let lastPcmPlaybackAt = 0;
 let ttsFallbackTimer = null;
 let minSpeakHoldUntil = 0;
 let idleSwitchTimer = null;
+const preloadPromises = new Map();
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
@@ -84,7 +85,36 @@ function configureCharacterVideoElement() {
   characterVideo.setAttribute("webkit-playsinline", "");
 }
 
-function swapCharacterVideoSource(src) {
+function ensureVideoReady(src) {
+  if (!src) return Promise.resolve(false);
+  if (preloadPromises.has(src)) return preloadPromises.get(src);
+
+  const probe = document.createElement("video");
+  probe.muted = true;
+  probe.defaultMuted = true;
+  probe.playsInline = true;
+  probe.preload = "auto";
+  probe.src = src;
+
+  const p = new Promise((resolve) => {
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      resolve(ok);
+    };
+
+    probe.addEventListener("canplay", () => finish(true), { once: true });
+    probe.addEventListener("error", () => finish(false), { once: true });
+    setTimeout(() => finish(false), 1500);
+    probe.load();
+  });
+
+  preloadPromises.set(src, p);
+  return p;
+}
+
+async function swapCharacterVideoSource(src) {
   if (!characterVideo) return;
   configureCharacterVideoElement();
 
@@ -96,21 +126,20 @@ function swapCharacterVideoSource(src) {
   const token = ++videoSwitchToken;
   characterVideo.classList.add("switching");
 
-  const finish = () => {
-    if (token !== videoSwitchToken || !characterVideo) return;
-    characterVideo.play().catch(() => {});
-    requestAnimationFrame(() => {
-      if (token !== videoSwitchToken || !characterVideo) return;
-      characterVideo.classList.remove("switching");
-    });
-  };
+  const ready = await ensureVideoReady(src);
+  if (token !== videoSwitchToken || !characterVideo) return;
+  if (!ready) {
+    characterVideo.classList.remove("switching");
+    return;
+  }
 
-  characterVideo.addEventListener("canplay", finish, { once: true });
   characterVideo.src = src;
-  characterVideo.play().catch(() => {});
   currentCharacterVideoSrc = src;
-
-  setTimeout(finish, 140);
+  characterVideo.play().catch(() => {});
+  requestAnimationFrame(() => {
+    if (token !== videoSwitchToken || !characterVideo) return;
+    characterVideo.classList.remove("switching");
+  });
 }
 
 function setVoiceVideoMode(nextMode) {
@@ -570,6 +599,13 @@ for (const ev of ["pause", "ended", "stalled"]) {
     ensureIdleVideoPlayback();
   });
 }
+
+characterVideo?.addEventListener("error", () => {
+  // デコード失敗時に黒画面へ落ちないよう待機動画へ戻す
+  currentCharacterVideoSrc = "";
+  currentVoiceVideoMode = "idle";
+  swapCharacterVideoSource(idleVideoSrc).catch(() => {});
+});
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
