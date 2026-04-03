@@ -101,12 +101,15 @@ function ensureVideoReady(src) {
     const finish = (ok) => {
       if (done) return;
       done = true;
+      // 失敗結果をキャッシュし続けると以後ずっと切替不能になるため、
+      // readyにならなかった場合は都度再試行できるようにする。
+      if (!ok) preloadPromises.delete(src);
       resolve(ok);
     };
 
     probe.addEventListener("canplay", () => finish(true), { once: true });
     probe.addEventListener("error", () => finish(false), { once: true });
-    setTimeout(() => finish(false), 1500);
+    setTimeout(() => finish(false), 4000);
     probe.load();
   });
 
