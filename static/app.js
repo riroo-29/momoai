@@ -115,6 +115,9 @@ function swapCharacterVideoSource(src) {
 
 function setVoiceVideoMode(nextMode) {
   if (!characterRig || !characterVideo) return;
+  const showSpeak = nextMode === "speak";
+  const targetSrc = showSpeak ? speakVideoSrc : idleVideoSrc;
+
   if (nextMode === "idle") {
     const nowMs = Date.now();
     if (nowMs < minSpeakHoldUntil) {
@@ -130,12 +133,10 @@ function setVoiceVideoMode(nextMode) {
     idleSwitchTimer = null;
   }
 
-  if (currentVoiceVideoMode === nextMode) return;
+  // モードだけ一致していても、実動画srcが一致しない場合は再同期する
+  if (currentVoiceVideoMode === nextMode && currentCharacterVideoSrc === targetSrc) return;
   currentVoiceVideoMode = nextMode;
-  const showSpeak = nextMode === "speak";
-
   characterRig.classList.add("video-active");
-  const targetSrc = showSpeak ? speakVideoSrc : idleVideoSrc;
   swapCharacterVideoSource(targetSrc);
 }
 
