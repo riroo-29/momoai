@@ -691,4 +691,11 @@ currentCharacterVideoSrc = idleVideoSrc;
 activeVideo = characterVideo;
 standbyVideo = characterVideoBuffer;
 characterVideo?.play().catch(() => {});
+
+const isStandalone = window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
+if (isStandalone) {
+  pseudoFullscreen = true;
+  document.body.classList.add("pseudo-fullscreen");
+}
+
 setVoiceStatus("準備完了。会話モード開始を押してマイク許可してください。");
