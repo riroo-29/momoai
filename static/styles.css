@@ -28,12 +28,32 @@ body {
   overscroll-behavior: none;
 }
 
+html.ios-site,
+body.ios-site {
+  background: #000;
+  background-color: #000;
+}
+
 .phone-stage {
   width: 100%;
   height: 100%;
   display: grid;
   place-items: center;
   padding: 0.75rem;
+}
+
+html.ios-site .phone-stage,
+body.ios-site .phone-stage {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  width: -webkit-fill-available;
+  height: var(--app-height, 100vh);
+  height: 100vh;
+  height: 100dvh;
+  height: -webkit-fill-available;
+  padding: 0;
+  background: #000;
 }
 
 .display-shell {
@@ -47,6 +67,21 @@ body {
   overflow: hidden;
   background: #000;
   box-shadow: 0 16px 48px #00000066, 0 0 40px #ff7eae55;
+}
+
+html.ios-site .display-shell,
+body.ios-site .display-shell {
+  width: 100vw;
+  width: -webkit-fill-available;
+  max-width: none;
+  height: var(--app-height, 100vh);
+  height: 100vh;
+  height: 100dvh;
+  height: -webkit-fill-available;
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 body.pseudo-fullscreen .phone-stage {

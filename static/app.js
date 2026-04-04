@@ -38,6 +38,16 @@ const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
 const FALLBACK_LIVE_MODEL = "models/gemini-3.1-flash-live-preview";
 
+function syncIosViewportHeight() {
+  const isIosPage =
+    document.documentElement.classList.contains("ios-site") || document.body.classList.contains("ios-site");
+  if (!isIosPage) return;
+  const height = window.innerHeight || document.documentElement.clientHeight || 0;
+  if (height > 0) {
+    document.documentElement.style.setProperty("--app-height", `${height}px`);
+  }
+}
+
 function setVoiceStatus(text) {
   if (voiceStatus) voiceStatus.textContent = text || "";
 }
@@ -697,5 +707,10 @@ if (isStandalone) {
   pseudoFullscreen = true;
   document.body.classList.add("pseudo-fullscreen");
 }
+
+syncIosViewportHeight();
+window.addEventListener("resize", syncIosViewportHeight);
+window.addEventListener("orientationchange", syncIosViewportHeight);
+window.addEventListener("pageshow", syncIosViewportHeight);
 
 setVoiceStatus("準備完了。会話モード開始を押してマイク許可してください。");
