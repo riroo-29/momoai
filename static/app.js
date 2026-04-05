@@ -51,6 +51,136 @@ const FAREWELL_RULES = [
   { patterns: ["ばいばい", "バイバイ", "ばい", "bye", "バイ"], reply: "バイバイ" },
   { patterns: ["おやすみ", "おやすみなさい"], reply: "おやすみ" },
 ];
+const MEMORY_STORAGE_KEY = "momo_important_memory_v1";
+const IMPORTANT_SCORE_THRESHOLD = 0.75;
+const DEFAULT_PROFILE_MEMORY = {
+  user_name: "りろー",
+  user_call_name: "との",
+  user_birthday: "8月29日",
+  ai_name: "もも",
+  speaking_tone: "友達っぽく",
+};
+let memoryState = loadMemoryState();
+
+function safeJsonParse(raw, fallback) {
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function loadMemoryState() {
+  let saved = null;
+  try {
+    saved = safeJsonParse(localStorage.getItem(MEMORY_STORAGE_KEY), null);
+  } catch (_) {
+    saved = null;
+  }
+
+  const profile = {
+    ...DEFAULT_PROFILE_MEMORY,
+    ...(saved?.profile || {}),
+  };
+  const importantFacts = Array.isArray(saved?.importantFacts) ? saved.importantFacts : [];
+  return { profile, importantFacts };
+}
+
+function saveMemoryState() {
+  try {
+    localStorage.setItem(MEMORY_STORAGE_KEY, JSON.stringify(memoryState));
+  } catch (_) {
+    // noop
+  }
+}
+
+function toHalfWidthDigits(text) {
+  return (text || "").replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0));
+}
+
+function normalizeBirthdayText(text) {
+  const raw = toHalfWidthDigits((text || "").trim());
+  const m = raw.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+  if (!m) return "";
+  return `${m[1]}月${m[2]}日`;
+}
+
+function pushImportantFact(kind, value, score, sourceText = "") {
+  if (!value || score < IMPORTANT_SCORE_THRESHOLD) return;
+  const now = new Date().toISOString();
+  const idx = memoryState.importantFacts.findIndex((x) => x.kind === kind);
+  const record = { kind, value, score, sourceText, updatedAt: now };
+  if (idx >= 0) memoryState.importantFacts[idx] = record;
+  else memoryState.importantFacts.push(record);
+  memoryState.importantFacts = memoryState.importantFacts.slice(-20);
+  saveMemoryState();
+}
+
+function learnImportantMemoryFromInput(inputText) {
+  const text = (inputText || "").trim();
+  if (!text) return;
+
+  const nameMatch =
+    text.match(/(?:私|ぼく|僕|俺|おれ)の(?:名前|なまえ)は\s*([^\s、。！!？?]+)/) ||
+    text.match(/(?:名前|なまえ)は\s*([^\s、。！!？?]+)/);
+  if (nameMatch?.[1]) {
+    memoryState.profile.user_name = nameMatch[1];
+    pushImportantFact("user_name", nameMatch[1], 0.95, text);
+  }
+
+  const callMatch =
+    text.match(/(?:呼び方|よびかた)は\s*([^\s、。！!？?]+)/) ||
+    text.match(/(?:呼んで|よんで)\s*([^\s、。！!？?]+)\s*(?:と|って)?/);
+  if (callMatch?.[1]) {
+    memoryState.profile.user_call_name = callMatch[1];
+    pushImportantFact("user_call_name", callMatch[1], 0.95, text);
+  }
+
+  const birthdayMatch = text.match(/(?:誕生日|たんじょうび)は?\s*([0-9０-９]{1,2}\s*月\s*[0-9０-９]{1,2}\s*日)/);
+  if (birthdayMatch?.[1]) {
+    const birthday = normalizeBirthdayText(birthdayMatch[1]);
+    if (birthday) {
+      memoryState.profile.user_birthday = birthday;
+      pushImportantFact("user_birthday", birthday, 0.98, text);
+    }
+  }
+
+  const aiNameMatch = text.match(/(?:AI|えーあい|この子|きみ|君)の(?:名前|なまえ)は\s*([^\s、。！!？?]+)/i);
+  if (aiNameMatch?.[1]) {
+    memoryState.profile.ai_name = aiNameMatch[1];
+    pushImportantFact("ai_name", aiNameMatch[1], 0.92, text);
+  }
+
+  const toneMatch = text.match(/(?:口調|話し方|トーン)は\s*([^\n。]+?)(?:[。！!？?]|$)/);
+  if (toneMatch?.[1]) {
+    const tone = toneMatch[1].trim();
+    if (tone.length > 0 && tone.length < 40) {
+      memoryState.profile.speaking_tone = tone;
+      pushImportantFact("speaking_tone", tone, 0.9, text);
+    }
+  }
+
+  saveMemoryState();
+}
+
+function buildSystemInstructionText() {
+  const p = memoryState.profile || DEFAULT_PROFILE_MEMORY;
+  const persistentFacts = memoryState.importantFacts
+    .filter((x) => x && x.kind && x.value)
+    .slice(-8)
+    .map((x) => `- ${x.kind}: ${x.value}`);
+
+  const memoryBlock =
+    persistentFacts.length > 0
+      ? `\n【重要記憶（高重要度のみ）】\n${persistentFacts.join("\n")}`
+      : "";
+
+  return `あなたはオリジナルAIキャラクター「${p.ai_name}」です。` +
+    `ユーザー名は「${p.user_name}」、呼び方は必ず「${p.user_call_name}」。` +
+    `ユーザーの誕生日は「${p.user_birthday}」。` +
+    `口調は「${p.speaking_tone}」で、自然で短め、親しみやすく話してください。` +
+    `敬語は硬すぎないように、友達のように会話してください。${memoryBlock}`;
+}
 
 function syncIosViewportHeight() {
   const isIosPage =
@@ -564,6 +694,10 @@ function handleLiveMessage(message) {
   const inputText = (sc.inputTranscription?.text || "").trim();
   const outputText = (sc.outputTranscription?.text || "").trim();
 
+  if (inputText) {
+    learnImportantMemoryFromInput(inputText);
+  }
+
   if (inputText && !farewellSequenceActive) {
     const replyWord = detectFarewellReplyWord(inputText);
     if (replyWord) {
@@ -720,7 +854,7 @@ async function startLiveMode() {
           systemInstruction: {
             parts: [
               {
-                text: "あなたはオリジナル2Dキャラクター『焔丸(ほむらまる)』です。明るく勇気づける少年剣士口調で、相手を主(あるじ)と呼び、短く自然に話してください。",
+                text: buildSystemInstructionText(),
               },
             ],
           },
