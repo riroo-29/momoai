@@ -48,13 +48,14 @@ let autoGreetPending = false;
 let farewellPending = false;
 let farewellWord = "";
 let farewellHardStopTimer = null;
+let liveSessionStartedAt = 0;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
 const FALLBACK_LIVE_MODEL = "models/gemini-3.1-flash-live-preview";
 const WAKE_WORD_PATTERNS = ["もも", "モモ", "momo", "MOMO", "桃"];
 const FAREWELL_RULES = [
-  { patterns: ["ばいばい", "バイバイ", "ばい", "bye", "バイ"], reply: "バイバイ" },
+  { patterns: ["ばいばい", "バイバイ", "bye"], reply: "バイバイ" },
   { patterns: ["おやすみ", "おやすみなさい"], reply: "おやすみ" },
 ];
 
@@ -614,7 +615,8 @@ function handleLiveMessage(message) {
   const inputText = (sc.inputTranscription?.text || "").trim();
   const outputText = (sc.outputTranscription?.text || "").trim();
 
-  if (inputText && !farewellPending) {
+  const canCheckFarewell = liveSessionStartedAt > 0 && Date.now() - liveSessionStartedAt > 4000;
+  if (inputText && !farewellPending && canCheckFarewell) {
     const w = detectFarewellWord(inputText);
     if (w) requestFarewellThenStop(w);
   }
@@ -736,6 +738,7 @@ async function startLiveMode(options = {}) {
   autoGreetPending = !!options.autoGreeting;
   farewellPending = false;
   farewellWord = "";
+  liveSessionStartedAt = 0;
   clearFarewellTimer();
   stopWakeWordListener();
 
@@ -821,6 +824,7 @@ async function startLiveMode(options = {}) {
 
       socket.send(JSON.stringify(setupMessage));
       liveActive = true;
+      liveSessionStartedAt = Date.now();
       liveStarting = false;
       liveStartButton?.classList.add("live-on");
       if (liveStopButton) liveStopButton.disabled = false;
@@ -912,6 +916,7 @@ function stopLiveMode(sendEnd = true) {
   autoGreetPending = false;
   farewellPending = false;
   farewellWord = "";
+  liveSessionStartedAt = 0;
   clearFarewellTimer();
 
   if (sendEnd && liveSocket && liveSocket.readyState === WebSocket.OPEN) {
