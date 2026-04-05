@@ -4,6 +4,8 @@ import os
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib import error, request
+from urllib.parse import parse_qs, urlparse
+from datetime import datetime, timezone, timedelta
 
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8000"))
@@ -104,6 +106,89 @@ def call_gemini(message: str, history: list[dict]) -> str:
     raise RuntimeError("Gemini response からテキストを抽出できませんでした。")
 
 
+def call_gemini_google_search(query: str) -> dict:
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY が未設定です。")
+
+    payload = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": f"次の質問に対してGoogle検索を使って最新情報を確認し、日本語で簡潔に要約してください: {query}"
+                    }
+                ],
+            }
+        ],
+        "tools": [{"google_search": {}}],
+        "generationConfig": {"temperature": 0.2},
+    }
+
+    endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    )
+    req = request.Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with request.urlopen(req, timeout=45) as res:
+            body = json.loads(res.read().decode("utf-8"))
+    except error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Google検索API error ({e.code}): {detail}") from e
+    except Exception as e:
+        raise RuntimeError(f"Google検索API request failed: {e}") from e
+
+    try:
+        parts = body["candidates"][0]["content"]["parts"]
+        summary = "".join(part.get("text", "") for part in parts).strip()
+    except Exception:
+        summary = ""
+
+    chunks = (
+        body.get("candidates", [{}])[0]
+        .get("groundingMetadata", {})
+        .get("groundingChunks", [])
+    )
+    sources = []
+    seen = set()
+    for chunk in chunks:
+        web = chunk.get("web", {})
+        uri = web.get("uri", "")
+        if not uri or uri in seen:
+            continue
+        seen.add(uri)
+        sources.append(
+            {
+                "title": web.get("title") or uri,
+                "url": uri,
+            }
+        )
+    return {
+        "query": query,
+        "summary": summary or "要約を取得できませんでした。",
+        "sources": sources[:8],
+        "model": GEMINI_MODEL,
+    }
+
+
+def build_now_info() -> dict:
+    jst = timezone(timedelta(hours=9))
+    now = datetime.now(jst)
+    weekday = ["月", "火", "水", "木", "金", "土", "日"][now.weekday()]
+    return {
+        "nowIso": now.astimezone(timezone.utc).isoformat(),
+        "timezone": "Asia/Tokyo",
+        "nowJst": now.strftime(f"%Y/%m/%d({weekday}) %H:%M:%S"),
+    }
+
+
 class AppHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path: str) -> str:
         # Serve static files from ./static
@@ -142,7 +227,8 @@ class AppHandler(SimpleHTTPRequestHandler):
             self.respond_json(500, {"error": str(e)})
 
     def do_GET(self):
-        if self.path == "/api/live-config":
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/live-config":
             self.respond_json(
                 200,
                 {
@@ -150,6 +236,21 @@ class AppHandler(SimpleHTTPRequestHandler):
                     "liveModel": normalize_live_model_name(GEMINI_LIVE_MODEL),
                 },
             )
+            return
+        if parsed.path == "/api/now":
+            self.respond_json(200, build_now_info())
+            return
+        if parsed.path == "/api/search":
+            params = parse_qs(parsed.query)
+            q = (params.get("q", [""])[0] or "").strip()
+            if not q:
+                self.respond_json(400, {"error": "q が空です"})
+                return
+            try:
+                result = call_gemini_google_search(q)
+                self.respond_json(200, result)
+            except Exception as e:
+                self.respond_json(500, {"error": str(e)})
             return
         super().do_GET()
 

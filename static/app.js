@@ -42,6 +42,9 @@ let farewellSequenceActive = false;
 let farewellTargetWord = "";
 let farewellStopTimer = null;
 let farewellHardStopTimer = null;
+let utilityInFlight = false;
+let lastUtilityText = "";
+let lastUtilityAt = 0;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
@@ -51,6 +54,8 @@ const FAREWELL_RULES = [
   { patterns: ["ばいばい", "バイバイ", "ばい", "bye", "バイ"], reply: "バイバイ" },
   { patterns: ["おやすみ", "おやすみなさい"], reply: "おやすみ" },
 ];
+const TIME_QUERY_PATTERNS = ["今何時", "いまなんじ", "何時", "時刻", "何日", "日付", "曜日", "today", "time"];
+const SEARCH_QUERY_PATTERNS = ["検索", "調べて", "しらべて", "ググ", "google", "最新", "ニュース", "とは", "だれ", "誰", "どこ"];
 const MEMORY_STORAGE_KEY = "momo_important_memory_v1";
 const IMPORTANT_SCORE_THRESHOLD = 0.75;
 const DEFAULT_PROFILE_MEMORY = {
@@ -193,10 +198,6 @@ function syncIosViewportHeight() {
   }
 }
 
-function setVoiceStatus(text) {
-  if (voiceStatus) voiceStatus.textContent = text || "";
-}
-
 function normalizeSpeechText(text) {
   return (text || "")
     .toLowerCase()
@@ -219,6 +220,103 @@ function detectFarewellReplyWord(text) {
     }
   }
   return "";
+}
+
+function isTimeQuery(text) {
+  const raw = (text || "").toLowerCase();
+  return TIME_QUERY_PATTERNS.some((p) => raw.includes(p.toLowerCase()));
+}
+
+function isSearchQuery(text) {
+  const raw = (text || "").toLowerCase();
+  return SEARCH_QUERY_PATTERNS.some((p) => raw.includes(p.toLowerCase()));
+}
+
+function extractSearchQuery(text) {
+  return (text || "")
+    .replace(/(検索して|検索|調べて|しらべて|ググって|ググると|教えて)/g, "")
+    .replace(/^(ねえ|もも|えっと|あの)\s*/g, "")
+    .trim();
+}
+
+async function fetchNowInfo() {
+  const res = await fetch("/api/now", { cache: "no-store" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error || "時刻取得に失敗");
+  return data;
+}
+
+async function fetchGoogleSearchInfo(query) {
+  const url = `/api/search?q=${encodeURIComponent(query)}`;
+  const res = await fetch(url, { cache: "no-store" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error || "検索に失敗");
+  return data;
+}
+
+function sendUtilityContextToLiveSocket(userQuestion, answerHint) {
+  if (!liveSocket || liveSocket.readyState !== WebSocket.OPEN) return;
+  const callName = memoryState?.profile?.user_call_name || "との";
+  const prompt =
+    `次の最新情報をもとに、${callName}へ友達口調で短く答えてください。` +
+    `\n質問: ${userQuestion}\n情報: ${answerHint}\n` +
+    "答えは2文以内、簡潔に。";
+  try {
+    liveSocket.send(
+      JSON.stringify({
+        clientContent: {
+          turns: [
+            {
+              role: "user",
+              parts: [{ text: prompt }],
+            },
+          ],
+          turnComplete: true,
+        },
+      }),
+    );
+  } catch (_) {
+    // noop
+  }
+}
+
+async function maybeHandleUtilityIntent(inputText) {
+  if (!liveActive || farewellSequenceActive || utilityInFlight) return;
+  const text = (inputText || "").trim();
+  if (!text) return;
+
+  const nowMs = Date.now();
+  const key = normalizeSpeechText(text);
+  if (key && key === lastUtilityText && nowMs - lastUtilityAt < 4000) return;
+
+  const wantsTime = isTimeQuery(text);
+  const wantsSearch = isSearchQuery(text) && !wantsTime;
+  if (!wantsTime && !wantsSearch) return;
+
+  utilityInFlight = true;
+  lastUtilityText = key;
+  lastUtilityAt = nowMs;
+
+  try {
+    if (wantsTime) {
+      const nowInfo = await fetchNowInfo();
+      const hint = `現在は ${nowInfo.nowJst}（${nowInfo.timezone}）です。`;
+      sendUtilityContextToLiveSocket(text, hint);
+      return;
+    }
+    const query = extractSearchQuery(text) || text;
+    const result = await fetchGoogleSearchInfo(query);
+    const topSources = (result.sources || [])
+      .slice(0, 3)
+      .map((s) => `${s.title} ${s.url}`)
+      .join(" / ");
+    const hint = `検索要約: ${result.summary || "情報を取得できませんでした。"}\n参照: ${topSources || "なし"}`;
+    sendUtilityContextToLiveSocket(text, hint);
+  } catch (e) {
+    setVoiceStatus(`補助取得エラー: ${e.message}`);
+  } finally {
+    utilityInFlight = false;
+  }
 }
 
 function clearFarewellTimers() {
@@ -696,6 +794,7 @@ function handleLiveMessage(message) {
 
   if (inputText) {
     learnImportantMemoryFromInput(inputText);
+    maybeHandleUtilityIntent(inputText);
   }
 
   if (inputText && !farewellSequenceActive) {
