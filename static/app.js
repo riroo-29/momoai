@@ -11,6 +11,7 @@ let pseudoFullscreen = false;
 
 let liveSocket = null;
 let liveActive = false;
+let liveStarting = false;
 let audioContext = null;
 let micStream = null;
 let micSource = null;
@@ -45,6 +46,7 @@ let farewellHardStopTimer = null;
 let utilityInFlight = false;
 let lastUtilityText = "";
 let lastUtilityAt = 0;
+let liveOpenTimeoutTimer = null;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
@@ -780,7 +782,10 @@ async function playPcmInt16(pcm16, sampleRate = 24000) {
 }
 
 async function getLiveConfig() {
-  const res = await fetch("/api/live-config");
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  const res = await fetch("/api/live-config", { signal: ctrl.signal });
+  clearTimeout(timer);
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Live設定の取得に失敗しました");
   return data;
@@ -913,7 +918,8 @@ function stopMicStreaming() {
 }
 
 async function startLiveMode() {
-  if (liveActive) return;
+  if (liveActive || liveStarting) return;
+  liveStarting = true;
   stopWakeWordListener();
   clearFarewellTimers();
   farewellSequenceActive = false;
@@ -937,6 +943,11 @@ async function startLiveMode() {
     const modelName = normalizeLiveModelName(cfg.liveModel);
 
     liveSocket.onopen = () => {
+      liveStarting = false;
+      if (liveOpenTimeoutTimer) {
+        clearTimeout(liveOpenTimeoutTimer);
+        liveOpenTimeoutTimer = null;
+      }
       const setupMessage = {
         setup: {
           model: modelName,
@@ -1018,17 +1029,42 @@ async function startLiveMode() {
     };
 
     liveSocket.onclose = (event) => {
+      liveStarting = false;
+      if (liveOpenTimeoutTimer) {
+        clearTimeout(liveOpenTimeoutTimer);
+        liveOpenTimeoutTimer = null;
+      }
       stopLiveMode(false);
       const detail = event?.reason ? ` (${event.reason})` : "";
       setVoiceStatus(`会話モードが切断されました${detail}`);
     };
+
+    liveOpenTimeoutTimer = setTimeout(() => {
+      if (liveActive) return;
+      try {
+        liveSocket?.close();
+      } catch (_) {
+        // noop
+      }
+      liveStarting = false;
+      if (liveStartButton) liveStartButton.disabled = false;
+      setVoiceStatus("開始失敗: 接続がタイムアウトしました");
+      scheduleWakeWordListener(300);
+    }, 10000);
   } catch (e) {
+    liveStarting = false;
     if (liveStartButton) liveStartButton.disabled = false;
     setVoiceStatus(`開始失敗: ${e.message}`);
+    scheduleWakeWordListener(300);
   }
 }
 
 function stopLiveMode(sendEnd = true) {
+  liveStarting = false;
+  if (liveOpenTimeoutTimer) {
+    clearTimeout(liveOpenTimeoutTimer);
+    liveOpenTimeoutTimer = null;
+  }
   if (sendEnd && liveSocket && liveSocket.readyState === WebSocket.OPEN) {
     try {
       liveSocket.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
