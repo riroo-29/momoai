@@ -13,7 +13,6 @@ let liveSocket = null;
 let liveActive = false;
 let audioContext = null;
 let micStream = null;
-let micPersistentEnabled = true;
 let micSource = null;
 let processor = null;
 let silentGain = null;
@@ -702,24 +701,11 @@ function stopMicStreaming() {
     micSource.disconnect();
     micSource = null;
   }
-  if (micStream && !micPersistentEnabled) {
+  if (micStream) {
     micStream.getTracks().forEach((t) => t.stop());
     micStream = null;
   }
   micStarted = false;
-}
-
-async function ensurePersistentMicAccess() {
-  if (!micPersistentEnabled) return;
-  if (micStream && micStream.active) return;
-  micStream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    },
-    video: false,
-  });
 }
 
 async function startLiveMode(options = {}) {
@@ -943,7 +929,6 @@ for (const v of [characterVideo, characterVideoBuffer]) {
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
-    ensurePersistentMicAccess().catch(() => {});
     scheduleWakeWordListener(250);
     if (currentVoiceVideoMode === "speak") setVoiceVideoMode("speak");
     else ensureIdleVideoPlayback();
@@ -956,7 +941,6 @@ for (const evt of ["click", "touchstart", "keydown"]) {
   window.addEventListener(
     evt,
     () => {
-      ensurePersistentMicAccess().catch(() => {});
       if (!liveActive && wakeGestureArmed) startWakeWordListener();
       if (currentVoiceVideoMode === "speak") setVoiceVideoMode("speak");
       else ensureIdleVideoPlayback();
@@ -988,5 +972,4 @@ window.visualViewport?.addEventListener("resize", syncIosViewportHeight);
 window.visualViewport?.addEventListener("scroll", syncIosViewportHeight);
 
 setVoiceStatus("準備完了。待機中は「もも」で会話モード開始できます。");
-ensurePersistentMicAccess().catch(() => {});
 startWakeWordListener();
