@@ -38,11 +38,19 @@ let wakeListening = false;
 let wakeRestartTimer = null;
 let wakeGestureArmed = false;
 let wakeUnsupportedNotified = false;
+let farewellSequenceActive = false;
+let farewellTargetWord = "";
+let farewellStopTimer = null;
+let farewellHardStopTimer = null;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
 const FALLBACK_LIVE_MODEL = "models/gemini-3.1-flash-live-preview";
 const WAKE_WORD_PATTERNS = ["もも", "モモ", "momo", "MOMO", "桃"];
+const FAREWELL_RULES = [
+  { patterns: ["ばいばい", "バイバイ", "ばい", "bye", "バイ"], reply: "バイバイ" },
+  { patterns: ["おやすみ", "おやすみなさい"], reply: "おやすみ" },
+];
 
 function syncIosViewportHeight() {
   const isIosPage =
@@ -70,6 +78,71 @@ function includesWakeWord(text) {
   const normalized = normalizeSpeechText(text);
   if (!normalized) return false;
   return WAKE_WORD_PATTERNS.some((w) => normalized.includes(normalizeSpeechText(w)));
+}
+
+function detectFarewellReplyWord(text) {
+  const normalized = normalizeSpeechText(text);
+  if (!normalized) return "";
+  for (const rule of FAREWELL_RULES) {
+    if (rule.patterns.some((p) => normalized.includes(normalizeSpeechText(p)))) {
+      return rule.reply;
+    }
+  }
+  return "";
+}
+
+function clearFarewellTimers() {
+  if (farewellStopTimer) {
+    clearTimeout(farewellStopTimer);
+    farewellStopTimer = null;
+  }
+  if (farewellHardStopTimer) {
+    clearTimeout(farewellHardStopTimer);
+    farewellHardStopTimer = null;
+  }
+}
+
+function finishFarewellAndStop() {
+  if (!liveActive) return;
+  clearFarewellTimers();
+  stopLiveMode(true);
+  setVoiceStatus("会話モードを停止しました");
+}
+
+function requestFarewellEchoAndStop(replyWord) {
+  if (!liveActive || !replyWord || farewellSequenceActive) return;
+  farewellSequenceActive = true;
+  farewellTargetWord = replyWord;
+  setVoiceStatus(`「${replyWord}」で終了します...`);
+
+  if (liveSocket && liveSocket.readyState === WebSocket.OPEN) {
+    try {
+      liveSocket.send(
+        JSON.stringify({
+          clientContent: {
+            turns: [
+              {
+                role: "user",
+                parts: [
+                  {
+                    text: `今から会話を終了します。「${replyWord}」の1語だけを返答してください。`,
+                  },
+                ],
+              },
+            ],
+            turnComplete: true,
+          },
+        }),
+      );
+    } catch (_) {
+      // noop
+    }
+  }
+
+  // 万一エコー検知できない場合でも終了できるようフェイルセーフ
+  farewellHardStopTimer = setTimeout(() => {
+    finishFarewellAndStop();
+  }, 6500);
 }
 
 function getSpeechRecognitionCtor() {
@@ -488,11 +561,29 @@ async function getLiveConfig() {
 function handleLiveMessage(message) {
   if (!message.serverContent) return;
   const sc = message.serverContent;
+  const inputText = (sc.inputTranscription?.text || "").trim();
   const outputText = (sc.outputTranscription?.text || "").trim();
+
+  if (inputText && !farewellSequenceActive) {
+    const replyWord = detectFarewellReplyWord(inputText);
+    if (replyWord) {
+      requestFarewellEchoAndStop(replyWord);
+    }
+  }
 
   if (outputText) {
     // 文字起こしは表示せず、口パク動画切替のトリガーとしてのみ利用
     bumpSpeakFallback(1200);
+  }
+
+  if (farewellSequenceActive && outputText) {
+    const gotReply = detectFarewellReplyWord(outputText);
+    if (gotReply && gotReply === farewellTargetWord) {
+      clearFarewellTimers();
+      farewellStopTimer = setTimeout(() => {
+        finishFarewellAndStop();
+      }, 900);
+    }
   }
 
   let hasAudioChunk = false;
@@ -591,6 +682,9 @@ function stopMicStreaming() {
 async function startLiveMode() {
   if (liveActive) return;
   stopWakeWordListener();
+  clearFarewellTimers();
+  farewellSequenceActive = false;
+  farewellTargetWord = "";
 
   setVoiceStatus("会話モードを開始中...");
   if (liveStartButton) liveStartButton.disabled = true;
@@ -722,6 +816,9 @@ function stopLiveMode(sendEnd = true) {
   }
 
   liveActive = false;
+  clearFarewellTimers();
+  farewellSequenceActive = false;
+  farewellTargetWord = "";
   if (liveStartButton) {
     liveStartButton.disabled = false;
     liveStartButton.classList.remove("live-on");
