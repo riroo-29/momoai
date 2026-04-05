@@ -596,6 +596,18 @@ async function getLiveConfig() {
   return data;
 }
 
+function withTimeout(promise, ms, label) {
+  let timer = null;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label}がタイムアウトしました`)), ms);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 function handleLiveMessage(message) {
   if (!message.serverContent) return;
   const sc = message.serverContent;
@@ -729,13 +741,20 @@ async function startLiveMode(options = {}) {
 
   setVoiceStatus("会話モードを開始中...");
   if (liveStartButton) liveStartButton.disabled = true;
+  const startupWatchdog = setTimeout(() => {
+    if (liveActive) return;
+    liveStarting = false;
+    if (liveStartButton) liveStartButton.disabled = false;
+    setVoiceStatus("開始失敗: 起動処理が停止しました。再試行してください");
+    scheduleWakeWordListener(350);
+  }, 15000);
 
   try {
-    const cfg = await getLiveConfig();
+    const cfg = await withTimeout(getLiveConfig(), 8000, "設定取得");
     if (!cfg.apiKey) throw new Error("GEMINI_API_KEY が未設定です");
 
     audioContext = audioContext || new AudioContext();
-    await audioContext.resume();
+    await withTimeout(audioContext.resume(), 4000, "音声初期化");
     nextPlayAt = 0;
 
     const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cfg.apiKey)}`;
@@ -759,6 +778,7 @@ async function startLiveMode(options = {}) {
     const modelName = normalizeLiveModelName(cfg.liveModel);
 
     socket.onopen = () => {
+      clearTimeout(startupWatchdog);
       if (connectTimer) {
         clearTimeout(connectTimer);
         connectTimer = null;
@@ -854,6 +874,7 @@ async function startLiveMode(options = {}) {
 
     socket.onerror = (event) => {
       if (liveSocket !== socket) return;
+      clearTimeout(startupWatchdog);
       if (connectTimer) {
         clearTimeout(connectTimer);
         connectTimer = null;
@@ -864,6 +885,7 @@ async function startLiveMode(options = {}) {
 
     socket.onclose = (event) => {
       if (liveSocket !== socket) return;
+      clearTimeout(startupWatchdog);
       if (connectTimer) {
         clearTimeout(connectTimer);
         connectTimer = null;
@@ -874,9 +896,11 @@ async function startLiveMode(options = {}) {
       setVoiceStatus(`会話モードが切断されました${detail}`);
     };
   } catch (e) {
+    clearTimeout(startupWatchdog);
     liveStarting = false;
     if (liveStartButton) liveStartButton.disabled = false;
     setVoiceStatus(`開始失敗: ${e.message}`);
+    scheduleWakeWordListener(350);
   }
 }
 
