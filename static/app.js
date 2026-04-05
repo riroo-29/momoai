@@ -38,11 +38,19 @@ let wakeListening = false;
 let wakeRestartTimer = null;
 let wakeGestureArmed = false;
 let wakeUnsupportedNotified = false;
+let autoGreetPending = false;
+let farewellPending = false;
+let farewellWord = "";
+let farewellHardStopTimer = null;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
 const FALLBACK_LIVE_MODEL = "models/gemini-3.1-flash-live-preview";
 const WAKE_WORD_PATTERNS = ["もも", "モモ", "momo", "MOMO", "桃"];
+const FAREWELL_RULES = [
+  { patterns: ["ばいばい", "バイバイ", "ばい", "bye", "バイ"], reply: "バイバイ" },
+  { patterns: ["おやすみ", "おやすみなさい"], reply: "おやすみ" },
+];
 
 function syncIosViewportHeight() {
   const isIosPage =
@@ -70,6 +78,62 @@ function includesWakeWord(text) {
   const normalized = normalizeSpeechText(text);
   if (!normalized) return false;
   return WAKE_WORD_PATTERNS.some((w) => normalized.includes(normalizeSpeechText(w)));
+}
+
+function detectFarewellWord(text) {
+  const normalized = normalizeSpeechText(text);
+  if (!normalized) return "";
+  for (const rule of FAREWELL_RULES) {
+    if (rule.patterns.some((p) => normalized.includes(normalizeSpeechText(p)))) {
+      return rule.reply;
+    }
+  }
+  return "";
+}
+
+function clearFarewellTimer() {
+  if (farewellHardStopTimer) {
+    clearTimeout(farewellHardStopTimer);
+    farewellHardStopTimer = null;
+  }
+}
+
+function sendOneShotInstruction(text) {
+  if (!liveSocket || liveSocket.readyState !== WebSocket.OPEN) return;
+  try {
+    liveSocket.send(
+      JSON.stringify({
+        clientContent: {
+          turns: [
+            {
+              role: "user",
+              parts: [{ text }],
+            },
+          ],
+          turnComplete: true,
+        },
+      }),
+    );
+  } catch (_) {
+    // noop
+  }
+}
+
+function requestAutoGreeting() {
+  sendOneShotInstruction("起動直後の返答として「どうした？」の一言だけを自然に返してください。");
+}
+
+function requestFarewellThenStop(word) {
+  if (!word || farewellPending) return;
+  farewellPending = true;
+  farewellWord = word;
+  sendOneShotInstruction(`会話を終了します。「${word}」の一言だけ返答してください。`);
+  clearFarewellTimer();
+  farewellHardStopTimer = setTimeout(() => {
+    if (!liveActive) return;
+    stopLiveMode(true);
+    setVoiceStatus("会話モードを停止しました");
+  }, 6500);
 }
 
 function getSpeechRecognitionCtor() {
@@ -132,7 +196,7 @@ function startWakeWordListener() {
       if (!includesWakeWord(heard)) return;
       stopWakeWordListener();
       setVoiceStatus("「もも」を検知。会話モードを開始します...");
-      startLiveMode();
+      startLiveMode({ autoGreeting: true });
     };
 
     wakeRecognition.onerror = (event) => {
@@ -488,11 +552,28 @@ async function getLiveConfig() {
 function handleLiveMessage(message) {
   if (!message.serverContent) return;
   const sc = message.serverContent;
+  const inputText = (sc.inputTranscription?.text || "").trim();
   const outputText = (sc.outputTranscription?.text || "").trim();
+
+  if (inputText && !farewellPending) {
+    const w = detectFarewellWord(inputText);
+    if (w) requestFarewellThenStop(w);
+  }
 
   if (outputText) {
     // 文字起こしは表示せず、口パク動画切替のトリガーとしてのみ利用
     bumpSpeakFallback(1200);
+    if (farewellPending) {
+      const echoed = detectFarewellWord(outputText);
+      if (echoed && echoed === farewellWord) {
+        clearFarewellTimer();
+        setTimeout(() => {
+          if (!liveActive) return;
+          stopLiveMode(true);
+          setVoiceStatus("会話モードを停止しました");
+        }, 850);
+      }
+    }
   }
 
   let hasAudioChunk = false;
@@ -588,8 +669,12 @@ function stopMicStreaming() {
   micStarted = false;
 }
 
-async function startLiveMode() {
+async function startLiveMode(options = {}) {
   if (liveActive) return;
+  autoGreetPending = !!options.autoGreeting;
+  farewellPending = false;
+  farewellWord = "";
+  clearFarewellTimer();
   stopWakeWordListener();
 
   setVoiceStatus("会話モードを開始中...");
@@ -645,6 +730,10 @@ async function startLiveMode() {
       startMicStreaming()
         .then(() => {
           setVoiceStatus("会話モード開始。話しかけてください");
+          if (autoGreetPending) {
+            autoGreetPending = false;
+            setTimeout(() => requestAutoGreeting(), 280);
+          }
         })
         .catch((e) => {
           setVoiceStatus(`マイク開始失敗: ${e.message}`);
@@ -702,6 +791,11 @@ async function startLiveMode() {
 }
 
 function stopLiveMode(sendEnd = true) {
+  autoGreetPending = false;
+  farewellPending = false;
+  farewellWord = "";
+  clearFarewellTimer();
+
   if (sendEnd && liveSocket && liveSocket.readyState === WebSocket.OPEN) {
     try {
       liveSocket.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
