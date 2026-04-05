@@ -38,6 +38,10 @@ let wakeListening = false;
 let wakeRestartTimer = null;
 let wakeGestureArmed = false;
 let wakeUnsupportedNotified = false;
+let wakeStopping = false;
+let wakeStartLastAt = 0;
+let wakeRetryDelayMs = 1200;
+let wakeRetryCount = 0;
 let autoGreetPending = false;
 let farewellPending = false;
 let farewellWord = "";
@@ -145,6 +149,7 @@ function shouldWakeListen() {
 }
 
 function stopWakeWordListener() {
+  wakeStopping = true;
   if (wakeRestartTimer) {
     clearTimeout(wakeRestartTimer);
     wakeRestartTimer = null;
@@ -159,6 +164,7 @@ function stopWakeWordListener() {
 }
 
 function scheduleWakeWordListener(delayMs = 420) {
+  if (wakeStopping) return;
   if (!shouldWakeListen()) return;
   if (wakeRestartTimer) clearTimeout(wakeRestartTimer);
   wakeRestartTimer = setTimeout(() => {
@@ -170,6 +176,14 @@ function scheduleWakeWordListener(delayMs = 420) {
 function startWakeWordListener() {
   if (!shouldWakeListen()) return;
   if (wakeListening) return;
+  wakeStopping = false;
+
+  const now = Date.now();
+  const minGap = 900;
+  if (now - wakeStartLastAt < minGap) {
+    scheduleWakeWordListener(minGap - (now - wakeStartLastAt) + 120);
+    return;
+  }
 
   const SpeechRecognitionCtor = getSpeechRecognitionCtor();
   if (!SpeechRecognitionCtor) {
@@ -184,7 +198,7 @@ function startWakeWordListener() {
     wakeRecognition = new SpeechRecognitionCtor();
     wakeRecognition.lang = "ja-JP";
     wakeRecognition.continuous = true;
-    wakeRecognition.interimResults = true;
+    wakeRecognition.interimResults = false;
     wakeRecognition.maxAlternatives = 1;
 
     wakeRecognition.onresult = (event) => {
@@ -204,31 +218,44 @@ function startWakeWordListener() {
       if (code === "not-allowed" || code === "service-not-allowed") {
         setVoiceStatus("マイク許可が必要です。1回だけ画面をタップして許可してください。");
         wakeGestureArmed = true;
+        wakeRetryCount = 0;
+        wakeRetryDelayMs = 1200;
         return;
       }
-      if (code === "aborted") return;
+      if (code === "aborted" && wakeStopping) return;
+      wakeRetryCount = Math.min(6, wakeRetryCount + 1);
+      wakeRetryDelayMs = Math.min(6000, 900 + wakeRetryCount * 450);
       if (code === "network") {
-        scheduleWakeWordListener(1200);
+        scheduleWakeWordListener(wakeRetryDelayMs);
         return;
       }
-      scheduleWakeWordListener(700);
+      scheduleWakeWordListener(wakeRetryDelayMs);
     };
 
     wakeRecognition.onend = () => {
       wakeListening = false;
-      if (shouldWakeListen()) scheduleWakeWordListener(350);
+      if (wakeStopping) {
+        wakeStopping = false;
+        return;
+      }
+      if (shouldWakeListen()) scheduleWakeWordListener(Math.max(1000, wakeRetryDelayMs));
     };
   }
 
   try {
+    wakeStartLastAt = Date.now();
     wakeRecognition.start();
     wakeListening = true;
     wakeGestureArmed = false;
+    wakeRetryCount = 0;
+    wakeRetryDelayMs = 1200;
     if (!voiceStatus?.textContent || voiceStatus.textContent.includes("準備完了")) {
       setVoiceStatus("待機中: 「もも」で会話モード開始できます。");
     }
   } catch (_) {
-    scheduleWakeWordListener(800);
+    wakeRetryCount = Math.min(6, wakeRetryCount + 1);
+    wakeRetryDelayMs = Math.min(6000, 900 + wakeRetryCount * 450);
+    scheduleWakeWordListener(wakeRetryDelayMs);
   }
 }
 
