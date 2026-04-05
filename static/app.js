@@ -39,6 +39,7 @@ let wakeListening = false;
 let wakeRestartTimer = null;
 let wakeGestureArmed = false;
 let wakeUnsupportedNotified = false;
+let wakePausedUntil = 0;
 let farewellSequenceActive = false;
 let farewellTargetWord = "";
 let farewellStopTimer = null;
@@ -380,10 +381,11 @@ function getSpeechRecognitionCtor() {
 }
 
 function shouldWakeListen() {
-  return !liveActive && document.visibilityState === "visible";
+  return !liveActive && !liveStarting && Date.now() >= wakePausedUntil && document.visibilityState === "visible";
 }
 
 function stopWakeWordListener() {
+  wakePausedUntil = Date.now() + 1500;
   if (wakeRestartTimer) {
     clearTimeout(wakeRestartTimer);
     wakeRestartTimer = null;
@@ -455,7 +457,7 @@ function startWakeWordListener() {
 
     wakeRecognition.onend = () => {
       wakeListening = false;
-      if (shouldWakeListen()) scheduleWakeWordListener(350);
+      if (shouldWakeListen()) scheduleWakeWordListener(1200);
     };
   }
 
@@ -920,6 +922,7 @@ function stopMicStreaming() {
 async function startLiveMode() {
   if (liveActive || liveStarting) return;
   liveStarting = true;
+  wakePausedUntil = Date.now() + 10000;
   stopWakeWordListener();
   clearFarewellTimers();
   farewellSequenceActive = false;
@@ -944,6 +947,7 @@ async function startLiveMode() {
 
     liveSocket.onopen = () => {
       liveStarting = false;
+      wakePausedUntil = Date.now() + 3000;
       if (liveOpenTimeoutTimer) {
         clearTimeout(liveOpenTimeoutTimer);
         liveOpenTimeoutTimer = null;
@@ -1030,6 +1034,7 @@ async function startLiveMode() {
 
     liveSocket.onclose = (event) => {
       liveStarting = false;
+      wakePausedUntil = Date.now() + 800;
       if (liveOpenTimeoutTimer) {
         clearTimeout(liveOpenTimeoutTimer);
         liveOpenTimeoutTimer = null;
@@ -1047,12 +1052,14 @@ async function startLiveMode() {
         // noop
       }
       liveStarting = false;
+      wakePausedUntil = Date.now() + 800;
       if (liveStartButton) liveStartButton.disabled = false;
       setVoiceStatus("開始失敗: 接続がタイムアウトしました");
       scheduleWakeWordListener(300);
     }, 10000);
   } catch (e) {
     liveStarting = false;
+    wakePausedUntil = Date.now() + 800;
     if (liveStartButton) liveStartButton.disabled = false;
     setVoiceStatus(`開始失敗: ${e.message}`);
     scheduleWakeWordListener(300);
