@@ -151,13 +151,22 @@ function shouldWakeListen() {
 }
 
 function stopWakeWordListener() {
+  // 監視中でないときは停止フラグを残さない（再開が永久にブロックされるのを防ぐ）
+  if (!wakeRecognition || !wakeListening) {
+    wakeStopping = false;
+    wakeStarting = false;
+    if (wakeRestartTimer) {
+      clearTimeout(wakeRestartTimer);
+      wakeRestartTimer = null;
+    }
+    return;
+  }
   wakeStopping = true;
   wakeStarting = false;
   if (wakeRestartTimer) {
     clearTimeout(wakeRestartTimer);
     wakeRestartTimer = null;
   }
-  if (!wakeRecognition || !wakeListening) return;
   wakeListening = false;
   try {
     wakeRecognition.stop();
