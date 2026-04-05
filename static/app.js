@@ -797,6 +797,26 @@ async function startLiveMode(options = {}) {
     const modelName = normalizeLiveModelName(cfg.liveModel);
     let setupCompleted = false;
     let micStartedAfterSetup = false;
+    let setupAckTimer = null;
+
+    const beginMicAfterSetup = () => {
+      if (micStartedAfterSetup) return;
+      micStartedAfterSetup = true;
+      startMicStreaming()
+        .then(() => {
+          liveStarting = false;
+          setVoiceStatus("会話モード開始。話しかけてください");
+          if (autoGreetPending) {
+            autoGreetPending = false;
+            setTimeout(() => requestAutoGreeting(), 280);
+          }
+        })
+        .catch((e) => {
+          lastLiveErrorDetail = `マイク開始失敗: ${e.message}`;
+          setVoiceStatus(lastLiveErrorDetail);
+          stopLiveMode(true);
+        });
+    };
 
     socket.onopen = () => {
       clearTimeout(startupWatchdog);
@@ -844,6 +864,11 @@ async function startLiveMode(options = {}) {
       if (liveStopButton) liveStopButton.disabled = false;
       setVoiceVideoMode("idle");
       setVoiceStatus("会話モード接続中... セットアップ中");
+      // 環境によってはsetupCompleteイベントが来ないため、短時間で会話開始にフォールバック
+      setupAckTimer = setTimeout(() => {
+        if (!liveActive || liveSocket !== socket || setupCompleted) return;
+        beginMicAfterSetup();
+      }, 1600);
     };
 
     socket.onmessage = async (event) => {
@@ -859,23 +884,11 @@ async function startLiveMode(options = {}) {
           }
           if (msg.setupComplete) {
             setupCompleted = true;
-            if (!micStartedAfterSetup) {
-              micStartedAfterSetup = true;
-              startMicStreaming()
-                .then(() => {
-                  liveStarting = false;
-                  setVoiceStatus("会話モード開始。話しかけてください");
-                  if (autoGreetPending) {
-                    autoGreetPending = false;
-                    setTimeout(() => requestAutoGreeting(), 280);
-                  }
-                })
-                .catch((e) => {
-                  lastLiveErrorDetail = `マイク開始失敗: ${e.message}`;
-                  setVoiceStatus(lastLiveErrorDetail);
-                  stopLiveMode(true);
-                });
+            if (setupAckTimer) {
+              clearTimeout(setupAckTimer);
+              setupAckTimer = null;
             }
+            beginMicAfterSetup();
             return;
           }
           handleLiveMessage(msg);
@@ -905,6 +918,10 @@ async function startLiveMode(options = {}) {
         clearTimeout(connectTimer);
         connectTimer = null;
       }
+      if (setupAckTimer) {
+        clearTimeout(setupAckTimer);
+        setupAckTimer = null;
+      }
       const reason = event?.message || "不明なエラー";
       setVoiceStatus(`会話モード接続エラー: ${reason}`);
     };
@@ -915,6 +932,10 @@ async function startLiveMode(options = {}) {
       if (connectTimer) {
         clearTimeout(connectTimer);
         connectTimer = null;
+      }
+      if (setupAckTimer) {
+        clearTimeout(setupAckTimer);
+        setupAckTimer = null;
       }
       liveStarting = false;
       stopLiveMode(false);
