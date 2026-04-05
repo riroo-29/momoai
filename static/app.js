@@ -176,6 +176,14 @@ function stopWakeWordListener() {
   }
 }
 
+async function waitForWakeListenerStopped(maxMs = 1500) {
+  const startedAt = Date.now();
+  while (wakeListening || wakeStarting) {
+    if (Date.now() - startedAt >= maxMs) break;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+}
+
 function scheduleWakeWordListener(delayMs = 420) {
   if (wakeStopping) return;
   if (!shouldWakeListen()) return;
@@ -216,7 +224,7 @@ function startWakeWordListener() {
     wakeRecognition.interimResults = false;
     wakeRecognition.maxAlternatives = 1;
 
-    wakeRecognition.onresult = (event) => {
+    wakeRecognition.onresult = async (event) => {
       if (!shouldWakeListen()) return;
       let heard = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -224,6 +232,8 @@ function startWakeWordListener() {
       }
       if (!includesWakeWord(heard)) return;
       stopWakeWordListener();
+      await waitForWakeListenerStopped(1200);
+      if (liveActive || liveStarting) return;
       setVoiceStatus("「もも」を検知。会話モードを開始します...");
       startLiveMode({ autoGreeting: true });
     };
@@ -741,6 +751,7 @@ async function startLiveMode(options = {}) {
   liveSessionStartedAt = 0;
   clearFarewellTimer();
   stopWakeWordListener();
+  await waitForWakeListenerStopped(1200);
 
   setVoiceStatus("会話モードを開始中...");
   if (liveStartButton) liveStartButton.disabled = true;
