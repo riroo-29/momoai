@@ -49,6 +49,7 @@ let farewellPending = false;
 let farewellWord = "";
 let farewellHardStopTimer = null;
 let liveSessionStartedAt = 0;
+let lastLiveErrorDetail = "";
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
@@ -745,6 +746,7 @@ function stopMicStreaming() {
 async function startLiveMode(options = {}) {
   if (liveActive || liveStarting) return;
   liveStarting = true;
+  lastLiveErrorDetail = "";
   autoGreetPending = !!options.autoGreeting;
   farewellPending = false;
   farewellWord = "";
@@ -793,6 +795,8 @@ async function startLiveMode(options = {}) {
     }, connectTimeoutMs);
 
     const modelName = normalizeLiveModelName(cfg.liveModel);
+    let setupCompleted = false;
+    let micStartedAfterSetup = false;
 
     socket.onopen = () => {
       clearTimeout(startupWatchdog);
@@ -836,24 +840,10 @@ async function startLiveMode(options = {}) {
       socket.send(JSON.stringify(setupMessage));
       liveActive = true;
       liveSessionStartedAt = Date.now();
-      liveStarting = false;
       liveStartButton?.classList.add("live-on");
       if (liveStopButton) liveStopButton.disabled = false;
       setVoiceVideoMode("idle");
-      setVoiceStatus("会話モード接続中... マイク初期化");
-
-      startMicStreaming()
-        .then(() => {
-          setVoiceStatus("会話モード開始。話しかけてください");
-          if (autoGreetPending) {
-            autoGreetPending = false;
-            setTimeout(() => requestAutoGreeting(), 280);
-          }
-        })
-        .catch((e) => {
-          setVoiceStatus(`マイク開始失敗: ${e.message}`);
-          stopLiveMode(true);
-        });
+      setVoiceStatus("会話モード接続中... セットアップ中");
     };
 
     socket.onmessage = async (event) => {
@@ -862,12 +852,30 @@ async function startLiveMode(options = {}) {
         if (typeof event.data === "string") {
           const msg = JSON.parse(event.data);
           if (msg.error) {
-            setVoiceStatus(`会話モードエラー: ${msg.error.message || JSON.stringify(msg.error)}`);
+            lastLiveErrorDetail = msg.error.message || JSON.stringify(msg.error);
+            setVoiceStatus(`会話モードエラー: ${lastLiveErrorDetail}`);
             stopLiveMode(true);
             return;
           }
           if (msg.setupComplete) {
-            setVoiceStatus("会話モード開始。話しかけてください");
+            setupCompleted = true;
+            if (!micStartedAfterSetup) {
+              micStartedAfterSetup = true;
+              startMicStreaming()
+                .then(() => {
+                  liveStarting = false;
+                  setVoiceStatus("会話モード開始。話しかけてください");
+                  if (autoGreetPending) {
+                    autoGreetPending = false;
+                    setTimeout(() => requestAutoGreeting(), 280);
+                  }
+                })
+                .catch((e) => {
+                  lastLiveErrorDetail = `マイク開始失敗: ${e.message}`;
+                  setVoiceStatus(lastLiveErrorDetail);
+                  stopLiveMode(true);
+                });
+            }
             return;
           }
           handleLiveMessage(msg);
@@ -910,7 +918,10 @@ async function startLiveMode(options = {}) {
       }
       liveStarting = false;
       stopLiveMode(false);
-      const detail = event?.reason ? ` (${event.reason})` : ` (code:${event?.code || "unknown"})`;
+      const baseDetail =
+        lastLiveErrorDetail ||
+        (event?.reason ? event.reason : `code:${event?.code || "unknown"}${setupCompleted ? "" : ",setup_incomplete"}`);
+      const detail = baseDetail ? ` (${baseDetail})` : "";
       setVoiceStatus(`会話モードが切断されました${detail}`);
     };
   } catch (e) {
