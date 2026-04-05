@@ -11,7 +11,6 @@ let pseudoFullscreen = false;
 
 let liveSocket = null;
 let liveActive = false;
-let liveStarting = false;
 let audioContext = null;
 let micStream = null;
 let micSource = null;
@@ -39,156 +38,11 @@ let wakeListening = false;
 let wakeRestartTimer = null;
 let wakeGestureArmed = false;
 let wakeUnsupportedNotified = false;
-let wakePausedUntil = 0;
-let farewellSequenceActive = false;
-let farewellTargetWord = "";
-let farewellStopTimer = null;
-let farewellHardStopTimer = null;
-let utilityInFlight = false;
-let lastUtilityText = "";
-let lastUtilityAt = 0;
-let liveOpenTimeoutTimer = null;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
 const FALLBACK_LIVE_MODEL = "models/gemini-3.1-flash-live-preview";
 const WAKE_WORD_PATTERNS = ["もも", "モモ", "momo", "MOMO", "桃"];
-const FAREWELL_RULES = [
-  { patterns: ["ばいばい", "バイバイ", "ばい", "bye", "バイ"], reply: "バイバイ" },
-  { patterns: ["おやすみ", "おやすみなさい"], reply: "おやすみ" },
-];
-const TIME_QUERY_PATTERNS = ["今何時", "いまなんじ", "何時", "時刻", "何日", "日付", "曜日", "today", "time"];
-const SEARCH_QUERY_PATTERNS = ["検索", "調べて", "しらべて", "ググ", "google", "最新", "ニュース", "とは", "だれ", "誰", "どこ"];
-const MEMORY_STORAGE_KEY = "momo_important_memory_v1";
-const IMPORTANT_SCORE_THRESHOLD = 0.75;
-const DEFAULT_PROFILE_MEMORY = {
-  user_name: "りろー",
-  user_call_name: "との",
-  user_birthday: "8月29日",
-  ai_name: "もも",
-  speaking_tone: "友達っぽく",
-};
-let memoryState = loadMemoryState();
-
-function safeJsonParse(raw, fallback) {
-  try {
-    return JSON.parse(raw);
-  } catch (_) {
-    return fallback;
-  }
-}
-
-function loadMemoryState() {
-  let saved = null;
-  try {
-    saved = safeJsonParse(localStorage.getItem(MEMORY_STORAGE_KEY), null);
-  } catch (_) {
-    saved = null;
-  }
-
-  const profile = {
-    ...DEFAULT_PROFILE_MEMORY,
-    ...(saved?.profile || {}),
-  };
-  const importantFacts = Array.isArray(saved?.importantFacts) ? saved.importantFacts : [];
-  return { profile, importantFacts };
-}
-
-function saveMemoryState() {
-  try {
-    localStorage.setItem(MEMORY_STORAGE_KEY, JSON.stringify(memoryState));
-  } catch (_) {
-    // noop
-  }
-}
-
-function toHalfWidthDigits(text) {
-  return (text || "").replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0));
-}
-
-function normalizeBirthdayText(text) {
-  const raw = toHalfWidthDigits((text || "").trim());
-  const m = raw.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
-  if (!m) return "";
-  return `${m[1]}月${m[2]}日`;
-}
-
-function pushImportantFact(kind, value, score, sourceText = "") {
-  if (!value || score < IMPORTANT_SCORE_THRESHOLD) return;
-  const now = new Date().toISOString();
-  const idx = memoryState.importantFacts.findIndex((x) => x.kind === kind);
-  const record = { kind, value, score, sourceText, updatedAt: now };
-  if (idx >= 0) memoryState.importantFacts[idx] = record;
-  else memoryState.importantFacts.push(record);
-  memoryState.importantFacts = memoryState.importantFacts.slice(-20);
-  saveMemoryState();
-}
-
-function learnImportantMemoryFromInput(inputText) {
-  const text = (inputText || "").trim();
-  if (!text) return;
-
-  const nameMatch =
-    text.match(/(?:私|ぼく|僕|俺|おれ)の(?:名前|なまえ)は\s*([^\s、。！!？?]+)/) ||
-    text.match(/(?:名前|なまえ)は\s*([^\s、。！!？?]+)/);
-  if (nameMatch?.[1]) {
-    memoryState.profile.user_name = nameMatch[1];
-    pushImportantFact("user_name", nameMatch[1], 0.95, text);
-  }
-
-  const callMatch =
-    text.match(/(?:呼び方|よびかた)は\s*([^\s、。！!？?]+)/) ||
-    text.match(/(?:呼んで|よんで)\s*([^\s、。！!？?]+)\s*(?:と|って)?/);
-  if (callMatch?.[1]) {
-    memoryState.profile.user_call_name = callMatch[1];
-    pushImportantFact("user_call_name", callMatch[1], 0.95, text);
-  }
-
-  const birthdayMatch = text.match(/(?:誕生日|たんじょうび)は?\s*([0-9０-９]{1,2}\s*月\s*[0-9０-９]{1,2}\s*日)/);
-  if (birthdayMatch?.[1]) {
-    const birthday = normalizeBirthdayText(birthdayMatch[1]);
-    if (birthday) {
-      memoryState.profile.user_birthday = birthday;
-      pushImportantFact("user_birthday", birthday, 0.98, text);
-    }
-  }
-
-  const aiNameMatch = text.match(/(?:AI|えーあい|この子|きみ|君)の(?:名前|なまえ)は\s*([^\s、。！!？?]+)/i);
-  if (aiNameMatch?.[1]) {
-    memoryState.profile.ai_name = aiNameMatch[1];
-    pushImportantFact("ai_name", aiNameMatch[1], 0.92, text);
-  }
-
-  const toneMatch = text.match(/(?:口調|話し方|トーン)は\s*([^\n。]+?)(?:[。！!？?]|$)/);
-  if (toneMatch?.[1]) {
-    const tone = toneMatch[1].trim();
-    if (tone.length > 0 && tone.length < 40) {
-      memoryState.profile.speaking_tone = tone;
-      pushImportantFact("speaking_tone", tone, 0.9, text);
-    }
-  }
-
-  saveMemoryState();
-}
-
-function buildSystemInstructionText() {
-  const p = memoryState.profile || DEFAULT_PROFILE_MEMORY;
-  const persistentFacts = memoryState.importantFacts
-    .filter((x) => x && x.kind && x.value)
-    .slice(-8)
-    .map((x) => `- ${x.kind}: ${x.value}`);
-
-  const memoryBlock =
-    persistentFacts.length > 0
-      ? `\n【重要記憶（高重要度のみ）】\n${persistentFacts.join("\n")}`
-      : "";
-
-  return `あなたはオリジナルAIキャラクター「${p.ai_name}」です。` +
-    `ユーザー名は「${p.user_name}」、呼び方は必ず「${p.user_call_name}」。` +
-    `ユーザーの誕生日は「${p.user_birthday}」。` +
-    `口調は「${p.speaking_tone}」で、自然で短め、親しみやすく話してください。` +
-    `敬語は硬すぎないように、友達のように会話してください。${memoryBlock}`;
-}
 
 function syncIosViewportHeight() {
   const isIosPage =
@@ -199,6 +53,10 @@ function syncIosViewportHeight() {
   if (height > 0) {
     document.documentElement.style.setProperty("--app-height", `${height + 1}px`);
   }
+}
+
+function setVoiceStatus(text) {
+  if (voiceStatus) voiceStatus.textContent = text || "";
 }
 
 function normalizeSpeechText(text) {
@@ -214,178 +72,15 @@ function includesWakeWord(text) {
   return WAKE_WORD_PATTERNS.some((w) => normalized.includes(normalizeSpeechText(w)));
 }
 
-function detectFarewellReplyWord(text) {
-  const normalized = normalizeSpeechText(text);
-  if (!normalized) return "";
-  for (const rule of FAREWELL_RULES) {
-    if (rule.patterns.some((p) => normalized.includes(normalizeSpeechText(p)))) {
-      return rule.reply;
-    }
-  }
-  return "";
-}
-
-function isTimeQuery(text) {
-  const raw = (text || "").toLowerCase();
-  return TIME_QUERY_PATTERNS.some((p) => raw.includes(p.toLowerCase()));
-}
-
-function isSearchQuery(text) {
-  const raw = (text || "").toLowerCase();
-  return SEARCH_QUERY_PATTERNS.some((p) => raw.includes(p.toLowerCase()));
-}
-
-function extractSearchQuery(text) {
-  return (text || "")
-    .replace(/(検索して|検索|調べて|しらべて|ググって|ググると|教えて)/g, "")
-    .replace(/^(ねえ|もも|えっと|あの)\s*/g, "")
-    .trim();
-}
-
-async function fetchNowInfo() {
-  const res = await fetch("/api/now", { cache: "no-store" });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error || "時刻取得に失敗");
-  return data;
-}
-
-async function fetchGoogleSearchInfo(query) {
-  const url = `/api/search?q=${encodeURIComponent(query)}`;
-  const res = await fetch(url, { cache: "no-store" });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error || "検索に失敗");
-  return data;
-}
-
-function sendUtilityContextToLiveSocket(userQuestion, answerHint) {
-  if (!liveSocket || liveSocket.readyState !== WebSocket.OPEN) return;
-  const callName = memoryState?.profile?.user_call_name || "との";
-  const prompt =
-    `次の最新情報をもとに、${callName}へ友達口調で短く答えてください。` +
-    `\n質問: ${userQuestion}\n情報: ${answerHint}\n` +
-    "答えは2文以内、簡潔に。";
-  try {
-    liveSocket.send(
-      JSON.stringify({
-        clientContent: {
-          turns: [
-            {
-              role: "user",
-              parts: [{ text: prompt }],
-            },
-          ],
-          turnComplete: true,
-        },
-      }),
-    );
-  } catch (_) {
-    // noop
-  }
-}
-
-async function maybeHandleUtilityIntent(inputText) {
-  if (!liveActive || farewellSequenceActive || utilityInFlight) return;
-  const text = (inputText || "").trim();
-  if (!text) return;
-
-  const nowMs = Date.now();
-  const key = normalizeSpeechText(text);
-  if (key && key === lastUtilityText && nowMs - lastUtilityAt < 4000) return;
-
-  const wantsTime = isTimeQuery(text);
-  const wantsSearch = isSearchQuery(text) && !wantsTime;
-  if (!wantsTime && !wantsSearch) return;
-
-  utilityInFlight = true;
-  lastUtilityText = key;
-  lastUtilityAt = nowMs;
-
-  try {
-    if (wantsTime) {
-      const nowInfo = await fetchNowInfo();
-      const hint = `現在は ${nowInfo.nowJst}（${nowInfo.timezone}）です。`;
-      sendUtilityContextToLiveSocket(text, hint);
-      return;
-    }
-    const query = extractSearchQuery(text) || text;
-    const result = await fetchGoogleSearchInfo(query);
-    const topSources = (result.sources || [])
-      .slice(0, 3)
-      .map((s) => `${s.title} ${s.url}`)
-      .join(" / ");
-    const hint = `検索要約: ${result.summary || "情報を取得できませんでした。"}\n参照: ${topSources || "なし"}`;
-    sendUtilityContextToLiveSocket(text, hint);
-  } catch (e) {
-    setVoiceStatus(`補助取得エラー: ${e.message}`);
-  } finally {
-    utilityInFlight = false;
-  }
-}
-
-function clearFarewellTimers() {
-  if (farewellStopTimer) {
-    clearTimeout(farewellStopTimer);
-    farewellStopTimer = null;
-  }
-  if (farewellHardStopTimer) {
-    clearTimeout(farewellHardStopTimer);
-    farewellHardStopTimer = null;
-  }
-}
-
-function finishFarewellAndStop() {
-  if (!liveActive) return;
-  clearFarewellTimers();
-  stopLiveMode(true);
-  setVoiceStatus("会話モードを停止しました");
-}
-
-function requestFarewellEchoAndStop(replyWord) {
-  if (!liveActive || !replyWord || farewellSequenceActive) return;
-  farewellSequenceActive = true;
-  farewellTargetWord = replyWord;
-  setVoiceStatus(`「${replyWord}」で終了します...`);
-
-  if (liveSocket && liveSocket.readyState === WebSocket.OPEN) {
-    try {
-      liveSocket.send(
-        JSON.stringify({
-          clientContent: {
-            turns: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text: `今から会話を終了します。「${replyWord}」の1語だけを返答してください。`,
-                  },
-                ],
-              },
-            ],
-            turnComplete: true,
-          },
-        }),
-      );
-    } catch (_) {
-      // noop
-    }
-  }
-
-  // 万一エコー検知できない場合でも終了できるようフェイルセーフ
-  farewellHardStopTimer = setTimeout(() => {
-    finishFarewellAndStop();
-  }, 6500);
-}
-
 function getSpeechRecognitionCtor() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
 function shouldWakeListen() {
-  return !liveActive && !liveStarting && Date.now() >= wakePausedUntil && document.visibilityState === "visible";
+  return !liveActive && document.visibilityState === "visible";
 }
 
 function stopWakeWordListener() {
-  wakePausedUntil = Date.now() + 1500;
   if (wakeRestartTimer) {
     clearTimeout(wakeRestartTimer);
     wakeRestartTimer = null;
@@ -457,7 +152,7 @@ function startWakeWordListener() {
 
     wakeRecognition.onend = () => {
       wakeListening = false;
-      if (shouldWakeListen()) scheduleWakeWordListener(1200);
+      if (shouldWakeListen()) scheduleWakeWordListener(350);
     };
   }
 
@@ -784,10 +479,7 @@ async function playPcmInt16(pcm16, sampleRate = 24000) {
 }
 
 async function getLiveConfig() {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
-  const res = await fetch("/api/live-config", { signal: ctrl.signal });
-  clearTimeout(timer);
+  const res = await fetch("/api/live-config");
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Live設定の取得に失敗しました");
   return data;
@@ -796,34 +488,11 @@ async function getLiveConfig() {
 function handleLiveMessage(message) {
   if (!message.serverContent) return;
   const sc = message.serverContent;
-  const inputText = (sc.inputTranscription?.text || "").trim();
   const outputText = (sc.outputTranscription?.text || "").trim();
-
-  if (inputText) {
-    learnImportantMemoryFromInput(inputText);
-    maybeHandleUtilityIntent(inputText);
-  }
-
-  if (inputText && !farewellSequenceActive) {
-    const replyWord = detectFarewellReplyWord(inputText);
-    if (replyWord) {
-      requestFarewellEchoAndStop(replyWord);
-    }
-  }
 
   if (outputText) {
     // 文字起こしは表示せず、口パク動画切替のトリガーとしてのみ利用
     bumpSpeakFallback(1200);
-  }
-
-  if (farewellSequenceActive && outputText) {
-    const gotReply = detectFarewellReplyWord(outputText);
-    if (gotReply && gotReply === farewellTargetWord) {
-      clearFarewellTimers();
-      farewellStopTimer = setTimeout(() => {
-        finishFarewellAndStop();
-      }, 900);
-    }
   }
 
   let hasAudioChunk = false;
@@ -920,13 +589,8 @@ function stopMicStreaming() {
 }
 
 async function startLiveMode() {
-  if (liveActive || liveStarting) return;
-  liveStarting = true;
-  wakePausedUntil = Date.now() + 10000;
+  if (liveActive) return;
   stopWakeWordListener();
-  clearFarewellTimers();
-  farewellSequenceActive = false;
-  farewellTargetWord = "";
 
   setVoiceStatus("会話モードを開始中...");
   if (liveStartButton) liveStartButton.disabled = true;
@@ -946,12 +610,6 @@ async function startLiveMode() {
     const modelName = normalizeLiveModelName(cfg.liveModel);
 
     liveSocket.onopen = () => {
-      liveStarting = false;
-      wakePausedUntil = Date.now() + 3000;
-      if (liveOpenTimeoutTimer) {
-        clearTimeout(liveOpenTimeoutTimer);
-        liveOpenTimeoutTimer = null;
-      }
       const setupMessage = {
         setup: {
           model: modelName,
@@ -968,7 +626,7 @@ async function startLiveMode() {
           systemInstruction: {
             parts: [
               {
-                text: buildSystemInstructionText(),
+                text: "あなたはオリジナル2Dキャラクター『焔丸(ほむらまる)』です。明るく勇気づける少年剣士口調で、相手を主(あるじ)と呼び、短く自然に話してください。",
               },
             ],
           },
@@ -1033,45 +691,17 @@ async function startLiveMode() {
     };
 
     liveSocket.onclose = (event) => {
-      liveStarting = false;
-      wakePausedUntil = Date.now() + 800;
-      if (liveOpenTimeoutTimer) {
-        clearTimeout(liveOpenTimeoutTimer);
-        liveOpenTimeoutTimer = null;
-      }
       stopLiveMode(false);
       const detail = event?.reason ? ` (${event.reason})` : "";
       setVoiceStatus(`会話モードが切断されました${detail}`);
     };
-
-    liveOpenTimeoutTimer = setTimeout(() => {
-      if (liveActive) return;
-      try {
-        liveSocket?.close();
-      } catch (_) {
-        // noop
-      }
-      liveStarting = false;
-      wakePausedUntil = Date.now() + 800;
-      if (liveStartButton) liveStartButton.disabled = false;
-      setVoiceStatus("開始失敗: 接続がタイムアウトしました");
-      scheduleWakeWordListener(300);
-    }, 10000);
   } catch (e) {
-    liveStarting = false;
-    wakePausedUntil = Date.now() + 800;
     if (liveStartButton) liveStartButton.disabled = false;
     setVoiceStatus(`開始失敗: ${e.message}`);
-    scheduleWakeWordListener(300);
   }
 }
 
 function stopLiveMode(sendEnd = true) {
-  liveStarting = false;
-  if (liveOpenTimeoutTimer) {
-    clearTimeout(liveOpenTimeoutTimer);
-    liveOpenTimeoutTimer = null;
-  }
   if (sendEnd && liveSocket && liveSocket.readyState === WebSocket.OPEN) {
     try {
       liveSocket.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
@@ -1092,9 +722,6 @@ function stopLiveMode(sendEnd = true) {
   }
 
   liveActive = false;
-  clearFarewellTimers();
-  farewellSequenceActive = false;
-  farewellTargetWord = "";
   if (liveStartButton) {
     liveStartButton.disabled = false;
     liveStartButton.classList.remove("live-on");
