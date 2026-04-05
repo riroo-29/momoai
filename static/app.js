@@ -39,6 +39,7 @@ let wakeRestartTimer = null;
 let wakeGestureArmed = false;
 let wakeUnsupportedNotified = false;
 let wakeStopping = false;
+let wakeStarting = false;
 let wakeStartLastAt = 0;
 let wakeRetryDelayMs = 1200;
 let wakeRetryCount = 0;
@@ -150,6 +151,7 @@ function shouldWakeListen() {
 
 function stopWakeWordListener() {
   wakeStopping = true;
+  wakeStarting = false;
   if (wakeRestartTimer) {
     clearTimeout(wakeRestartTimer);
     wakeRestartTimer = null;
@@ -166,6 +168,7 @@ function stopWakeWordListener() {
 function scheduleWakeWordListener(delayMs = 420) {
   if (wakeStopping) return;
   if (!shouldWakeListen()) return;
+  if (wakeStarting || wakeListening) return;
   if (wakeRestartTimer) clearTimeout(wakeRestartTimer);
   wakeRestartTimer = setTimeout(() => {
     wakeRestartTimer = null;
@@ -175,6 +178,7 @@ function scheduleWakeWordListener(delayMs = 420) {
 
 function startWakeWordListener() {
   if (!shouldWakeListen()) return;
+  if (wakeStarting) return;
   if (wakeListening) return;
   wakeStopping = false;
 
@@ -214,6 +218,8 @@ function startWakeWordListener() {
     };
 
     wakeRecognition.onerror = (event) => {
+      wakeStarting = false;
+      wakeListening = false;
       const code = event?.error || "";
       if (code === "not-allowed" || code === "service-not-allowed") {
         setVoiceStatus("マイク許可が必要です。1回だけ画面をタップして許可してください。");
@@ -233,6 +239,7 @@ function startWakeWordListener() {
     };
 
     wakeRecognition.onend = () => {
+      wakeStarting = false;
       wakeListening = false;
       if (wakeStopping) {
         wakeStopping = false;
@@ -243,6 +250,7 @@ function startWakeWordListener() {
   }
 
   try {
+    wakeStarting = true;
     wakeStartLastAt = Date.now();
     wakeRecognition.start();
     wakeListening = true;
@@ -253,6 +261,8 @@ function startWakeWordListener() {
       setVoiceStatus("待機中: 「もも」で会話モード開始できます。");
     }
   } catch (_) {
+    wakeStarting = false;
+    wakeListening = false;
     wakeRetryCount = Math.min(6, wakeRetryCount + 1);
     wakeRetryDelayMs = Math.min(6000, 900 + wakeRetryCount * 450);
     scheduleWakeWordListener(wakeRetryDelayMs);
