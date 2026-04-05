@@ -754,7 +754,10 @@ async function startLiveMode(options = {}) {
     if (!cfg.apiKey) throw new Error("GEMINI_API_KEY が未設定です");
 
     audioContext = audioContext || new AudioContext();
-    await withTimeout(audioContext.resume(), 4000, "音声初期化");
+    if (audioContext.state !== "running") {
+      // 一部ブラウザではここがユーザー操作待ちで保留されるため、開始失敗にしない
+      audioContext.resume().catch(() => {});
+    }
     nextPlayAt = 0;
 
     const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cfg.apiKey)}`;
