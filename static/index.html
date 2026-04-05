@@ -8,6 +8,15 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
     <title>もも Voice</title>
+    <script>
+      (function () {
+        var ua = navigator.userAgent || "";
+        var isIOS = /iPhone|iPad|iPod/i.test(ua);
+        if (isIOS && location.pathname === "/") {
+          location.replace("/ios.html");
+        }
+      })();
+    </script>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=20260403a" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=20260403a" />

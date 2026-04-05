@@ -2,7 +2,10 @@
 <html lang="ja" class="ios-site">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <meta name="theme-color" content="#000000" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -12,7 +15,14 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=20260403a" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=20260403a" />
     <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png?v=20260403a" />
-    <link rel="stylesheet" href="/styles.css?v=20260405b" />
+    <link rel="stylesheet" href="/styles.css?v=20260405c" />
+    <script>
+      (function () {
+        var vv = window.visualViewport;
+        var h = Math.ceil((vv && vv.height) || window.innerHeight || document.documentElement.clientHeight || 0);
+        if (h > 0) document.documentElement.style.setProperty("--app-height", h + 1 + "px");
+      })();
+    </script>
   </head>
   <body class="ios-site">
     <main class="phone-stage" aria-label="焔丸AI 音声会話ディスプレイ">
@@ -71,6 +81,6 @@
       </section>
     </main>
 
-    <script src="/app.js?v=20260405b"></script>
+    <script src="/app.js?v=20260405d"></script>
   </body>
 </html>

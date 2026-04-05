@@ -30,8 +30,22 @@ body {
 
 html.ios-site,
 body.ios-site {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: var(--app-height, 100dvh);
+  min-height: 0;
+  overflow: hidden;
   background: #000;
-  background-color: #000;
+  background-color: #000 !important;
+}
+
+body.ios-site::before {
+  content: "";
+  position: fixed;
+  inset: -2px 0 -2px 0;
+  background: #000;
+  z-index: -1;
 }
 
 .phone-stage {
@@ -47,11 +61,8 @@ body.ios-site .phone-stage {
   position: fixed;
   inset: 0;
   width: 100vw;
-  width: -webkit-fill-available;
   height: var(--app-height, 100vh);
-  height: 100vh;
-  height: 100dvh;
-  height: -webkit-fill-available;
+  min-height: 0;
   padding: 0;
   background: #000;
 }
@@ -72,16 +83,12 @@ body.ios-site .phone-stage {
 html.ios-site .display-shell,
 body.ios-site .display-shell {
   width: 100vw;
-  width: -webkit-fill-available;
   max-width: none;
   height: var(--app-height, 100vh);
-  height: 100vh;
-  height: 100dvh;
-  height: -webkit-fill-available;
+  min-height: 0;
   border-radius: 0;
   border: 0;
   box-shadow: none;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 body.pseudo-fullscreen .phone-stage {

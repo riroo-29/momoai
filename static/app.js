@@ -42,9 +42,10 @@ function syncIosViewportHeight() {
   const isIosPage =
     document.documentElement.classList.contains("ios-site") || document.body.classList.contains("ios-site");
   if (!isIosPage) return;
-  const height = window.innerHeight || document.documentElement.clientHeight || 0;
+  const vv = window.visualViewport;
+  const height = Math.ceil(vv?.height || window.innerHeight || document.documentElement.clientHeight || 0);
   if (height > 0) {
-    document.documentElement.style.setProperty("--app-height", `${height}px`);
+    document.documentElement.style.setProperty("--app-height", `${height + 1}px`);
   }
 }
 
@@ -712,5 +713,7 @@ syncIosViewportHeight();
 window.addEventListener("resize", syncIosViewportHeight);
 window.addEventListener("orientationchange", syncIosViewportHeight);
 window.addEventListener("pageshow", syncIosViewportHeight);
+window.visualViewport?.addEventListener("resize", syncIosViewportHeight);
+window.visualViewport?.addEventListener("scroll", syncIosViewportHeight);
 
 setVoiceStatus("準備完了。会話モード開始を押してマイク許可してください。");
