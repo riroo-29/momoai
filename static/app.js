@@ -33,10 +33,16 @@ let minSpeakHoldUntil = 0;
 let idleSwitchTimer = null;
 let activeVideo = characterVideo;
 let standbyVideo = characterVideoBuffer;
+let wakeRecognition = null;
+let wakeListening = false;
+let wakeRestartTimer = null;
+let wakeGestureArmed = false;
+let wakeUnsupportedNotified = false;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
 const FALLBACK_LIVE_MODEL = "models/gemini-3.1-flash-live-preview";
+const WAKE_WORD_PATTERNS = ["もも", "モモ", "momo", "MOMO", "桃"];
 
 function syncIosViewportHeight() {
   const isIosPage =
@@ -51,6 +57,115 @@ function syncIosViewportHeight() {
 
 function setVoiceStatus(text) {
   if (voiceStatus) voiceStatus.textContent = text || "";
+}
+
+function normalizeSpeechText(text) {
+  return (text || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[。、！!？?\-ー~〜\.,]/g, "");
+}
+
+function includesWakeWord(text) {
+  const normalized = normalizeSpeechText(text);
+  if (!normalized) return false;
+  return WAKE_WORD_PATTERNS.some((w) => normalized.includes(normalizeSpeechText(w)));
+}
+
+function getSpeechRecognitionCtor() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+function shouldWakeListen() {
+  return !liveActive && document.visibilityState === "visible";
+}
+
+function stopWakeWordListener() {
+  if (wakeRestartTimer) {
+    clearTimeout(wakeRestartTimer);
+    wakeRestartTimer = null;
+  }
+  if (!wakeRecognition || !wakeListening) return;
+  wakeListening = false;
+  try {
+    wakeRecognition.stop();
+  } catch (_) {
+    // noop
+  }
+}
+
+function scheduleWakeWordListener(delayMs = 420) {
+  if (!shouldWakeListen()) return;
+  if (wakeRestartTimer) clearTimeout(wakeRestartTimer);
+  wakeRestartTimer = setTimeout(() => {
+    wakeRestartTimer = null;
+    startWakeWordListener();
+  }, delayMs);
+}
+
+function startWakeWordListener() {
+  if (!shouldWakeListen()) return;
+  if (wakeListening) return;
+
+  const SpeechRecognitionCtor = getSpeechRecognitionCtor();
+  if (!SpeechRecognitionCtor) {
+    if (!wakeUnsupportedNotified) {
+      wakeUnsupportedNotified = true;
+      setVoiceStatus("待機ワード起動はこのブラウザ未対応です。会話モード開始を押してください。");
+    }
+    return;
+  }
+
+  if (!wakeRecognition) {
+    wakeRecognition = new SpeechRecognitionCtor();
+    wakeRecognition.lang = "ja-JP";
+    wakeRecognition.continuous = true;
+    wakeRecognition.interimResults = true;
+    wakeRecognition.maxAlternatives = 1;
+
+    wakeRecognition.onresult = (event) => {
+      if (!shouldWakeListen()) return;
+      let heard = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        heard += event.results[i][0]?.transcript || "";
+      }
+      if (!includesWakeWord(heard)) return;
+      stopWakeWordListener();
+      setVoiceStatus("「もも」を検知。会話モードを開始します...");
+      startLiveMode();
+    };
+
+    wakeRecognition.onerror = (event) => {
+      const code = event?.error || "";
+      if (code === "not-allowed" || code === "service-not-allowed") {
+        setVoiceStatus("マイク許可が必要です。1回だけ画面をタップして許可してください。");
+        wakeGestureArmed = true;
+        return;
+      }
+      if (code === "aborted") return;
+      if (code === "network") {
+        scheduleWakeWordListener(1200);
+        return;
+      }
+      scheduleWakeWordListener(700);
+    };
+
+    wakeRecognition.onend = () => {
+      wakeListening = false;
+      if (shouldWakeListen()) scheduleWakeWordListener(350);
+    };
+  }
+
+  try {
+    wakeRecognition.start();
+    wakeListening = true;
+    wakeGestureArmed = false;
+    if (!voiceStatus?.textContent || voiceStatus.textContent.includes("準備完了")) {
+      setVoiceStatus("待機中: 「もも」で会話モード開始できます。");
+    }
+  } catch (_) {
+    scheduleWakeWordListener(800);
+  }
 }
 
 async function toggleFullscreen() {
@@ -475,6 +590,7 @@ function stopMicStreaming() {
 
 async function startLiveMode() {
   if (liveActive) return;
+  stopWakeWordListener();
 
   setVoiceStatus("会話モードを開始中...");
   if (liveStartButton) liveStartButton.disabled = true;
@@ -633,6 +749,8 @@ function stopLiveMode(sendEnd = true) {
       // noop
     }
   }
+
+  scheduleWakeWordListener(300);
 }
 
 liveStartButton?.addEventListener("click", () => startLiveMode());
@@ -678,8 +796,11 @@ for (const v of [characterVideo, characterVideoBuffer]) {
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
+    scheduleWakeWordListener(250);
     if (currentVoiceVideoMode === "speak") setVoiceVideoMode("speak");
     else ensureIdleVideoPlayback();
+  } else {
+    stopWakeWordListener();
   }
 });
 
@@ -687,6 +808,7 @@ for (const evt of ["click", "touchstart", "keydown"]) {
   window.addEventListener(
     evt,
     () => {
+      if (!liveActive && wakeGestureArmed) startWakeWordListener();
       if (currentVoiceVideoMode === "speak") setVoiceVideoMode("speak");
       else ensureIdleVideoPlayback();
     },
@@ -716,4 +838,5 @@ window.addEventListener("pageshow", syncIosViewportHeight);
 window.visualViewport?.addEventListener("resize", syncIosViewportHeight);
 window.visualViewport?.addEventListener("scroll", syncIosViewportHeight);
 
-setVoiceStatus("準備完了。会話モード開始を押してマイク許可してください。");
+setVoiceStatus("準備完了。待機中は「もも」で会話モード開始できます。");
+startWakeWordListener();
