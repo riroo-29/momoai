@@ -742,10 +742,27 @@ async function startLiveMode(options = {}) {
     const socket = new WebSocket(wsUrl);
     socket.binaryType = "arraybuffer";
     liveSocket = socket;
+    const connectTimeoutMs = 10000;
+    let connectTimer = setTimeout(() => {
+      if (liveSocket !== socket || liveActive) return;
+      liveStarting = false;
+      try {
+        socket.close();
+      } catch (_) {
+        // noop
+      }
+      if (liveStartButton) liveStartButton.disabled = false;
+      setVoiceStatus("会話モード接続タイムアウト: 回線状態を確認して再試行してください");
+      scheduleWakeWordListener(300);
+    }, connectTimeoutMs);
 
     const modelName = normalizeLiveModelName(cfg.liveModel);
 
     socket.onopen = () => {
+      if (connectTimer) {
+        clearTimeout(connectTimer);
+        connectTimer = null;
+      }
       if (liveSocket !== socket) {
         try {
           socket.close();
@@ -837,12 +854,20 @@ async function startLiveMode(options = {}) {
 
     socket.onerror = (event) => {
       if (liveSocket !== socket) return;
+      if (connectTimer) {
+        clearTimeout(connectTimer);
+        connectTimer = null;
+      }
       const reason = event?.message || "不明なエラー";
       setVoiceStatus(`会話モード接続エラー: ${reason}`);
     };
 
     socket.onclose = (event) => {
       if (liveSocket !== socket) return;
+      if (connectTimer) {
+        clearTimeout(connectTimer);
+        connectTimer = null;
+      }
       liveStarting = false;
       stopLiveMode(false);
       const detail = event?.reason ? ` (${event.reason})` : ` (code:${event?.code || "unknown"})`;
