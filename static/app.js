@@ -11,6 +11,7 @@ let pseudoFullscreen = false;
 
 let liveSocket = null;
 let liveActive = false;
+let liveStarting = false;
 let audioContext = null;
 let micStream = null;
 let micSource = null;
@@ -709,7 +710,8 @@ function stopMicStreaming() {
 }
 
 async function startLiveMode(options = {}) {
-  if (liveActive) return;
+  if (liveActive || liveStarting) return;
+  liveStarting = true;
   autoGreetPending = !!options.autoGreeting;
   farewellPending = false;
   farewellWord = "";
@@ -728,12 +730,21 @@ async function startLiveMode(options = {}) {
     nextPlayAt = 0;
 
     const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cfg.apiKey)}`;
-    liveSocket = new WebSocket(wsUrl);
-    liveSocket.binaryType = "arraybuffer";
+    const socket = new WebSocket(wsUrl);
+    socket.binaryType = "arraybuffer";
+    liveSocket = socket;
 
     const modelName = normalizeLiveModelName(cfg.liveModel);
 
-    liveSocket.onopen = () => {
+    socket.onopen = () => {
+      if (liveSocket !== socket) {
+        try {
+          socket.close();
+        } catch (_) {
+          // noop
+        }
+        return;
+      }
       const setupMessage = {
         setup: {
           model: modelName,
@@ -759,8 +770,9 @@ async function startLiveMode(options = {}) {
         },
       };
 
-      liveSocket.send(JSON.stringify(setupMessage));
+      socket.send(JSON.stringify(setupMessage));
       liveActive = true;
+      liveStarting = false;
       liveStartButton?.classList.add("live-on");
       if (liveStopButton) liveStopButton.disabled = false;
       setVoiceVideoMode("idle");
@@ -780,7 +792,8 @@ async function startLiveMode(options = {}) {
         });
     };
 
-    liveSocket.onmessage = async (event) => {
+    socket.onmessage = async (event) => {
+      if (liveSocket !== socket) return;
       try {
         if (typeof event.data === "string") {
           const msg = JSON.parse(event.data);
@@ -813,23 +826,28 @@ async function startLiveMode(options = {}) {
       }
     };
 
-    liveSocket.onerror = (event) => {
+    socket.onerror = (event) => {
+      if (liveSocket !== socket) return;
       const reason = event?.message || "不明なエラー";
       setVoiceStatus(`会話モード接続エラー: ${reason}`);
     };
 
-    liveSocket.onclose = (event) => {
+    socket.onclose = (event) => {
+      if (liveSocket !== socket) return;
+      liveStarting = false;
       stopLiveMode(false);
-      const detail = event?.reason ? ` (${event.reason})` : "";
+      const detail = event?.reason ? ` (${event.reason})` : ` (code:${event?.code || "unknown"})`;
       setVoiceStatus(`会話モードが切断されました${detail}`);
     };
   } catch (e) {
+    liveStarting = false;
     if (liveStartButton) liveStartButton.disabled = false;
     setVoiceStatus(`開始失敗: ${e.message}`);
   }
 }
 
 function stopLiveMode(sendEnd = true) {
+  liveStarting = false;
   autoGreetPending = false;
   farewellPending = false;
   farewellWord = "";
