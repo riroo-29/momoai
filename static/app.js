@@ -243,11 +243,10 @@ function startWakeWordListener() {
         heard += event.results[i][0]?.transcript || "";
       }
       if (!includesWakeWord(heard)) return;
-      stopWakeWordListener();
-      await waitForWakeListenerStopped(1200);
       if (liveActive || liveStarting) return;
       setVoiceStatus("「もも」を検知。会話モードを開始します...");
-      startLiveMode({ autoGreeting: true });
+      // ボタン押下と完全に同じ開始経路へ統一
+      liveStartButton?.click();
     };
 
     wakeRecognition.onerror = (event) => {
