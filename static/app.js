@@ -55,6 +55,7 @@ let liveSessionStartedAt = 0;
 let lastLiveErrorDetail = "";
 let localStopReason = "";
 let entryStartInFlight = false;
+let audioUnlockHintShown = false;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
@@ -830,8 +831,19 @@ async function startLiveMode(options = {}) {
 
     audioContext = audioContext || new AudioContext();
     if (audioContext.state !== "running") {
-      // 一部ブラウザではここがユーザー操作待ちで保留されるため、開始失敗にしない
-      audioContext.resume().catch(() => {});
+      await audioContext.resume().catch(() => {});
+    }
+    if (audioContext.state !== "running") {
+      liveStarting = false;
+      if (liveStartButton) liveStartButton.disabled = false;
+      if (!audioUnlockHintShown) {
+        audioUnlockHintShown = true;
+        setVoiceStatus("音声初期化待ち: 1回だけ画面タップ後に再度「もも」と話しかけてください");
+      } else {
+        setVoiceStatus("音声初期化待ち: 画面をタップしてから再試行してください");
+      }
+      scheduleWakeWordListener(500);
+      return;
     }
     nextPlayAt = 0;
 
@@ -1150,6 +1162,9 @@ for (const evt of ["click", "touchstart", "keydown"]) {
   window.addEventListener(
     evt,
     () => {
+      if (audioContext && audioContext.state !== "running") {
+        audioContext.resume().catch(() => {});
+      }
       if (!liveActive && wakeGestureArmed) startWakeWordListener();
       if (currentVoiceVideoMode === "speak") setVoiceVideoMode("speak");
       else ensureIdleVideoPlayback();
