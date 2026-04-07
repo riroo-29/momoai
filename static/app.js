@@ -53,6 +53,7 @@ let farewellCandidateAt = 0;
 let liveSessionStartedAt = 0;
 let lastLiveErrorDetail = "";
 let localStopReason = "";
+let entryStartInFlight = false;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
@@ -270,12 +271,7 @@ function startWakeWordListener() {
       }
       if (!includesWakeWord(heard)) return;
       if (liveActive || liveStarting) return;
-      setVoiceStatus("「もも」を検知。会話モードを開始します...");
-      // 導入だけウェイク処理、開始本体はボタン経路へ合流
-      hardResetWakeWordListener();
-      await new Promise((resolve) => setTimeout(resolve, 140));
-      // ボタン押下と完全に同じ開始経路へ統一
-      liveStartButton?.click();
+      await triggerLiveStart("wake");
     };
 
     wakeRecognition.onerror = (event) => {
@@ -809,8 +805,6 @@ async function startLiveMode(options = {}) {
   farewellCandidateAt = 0;
   liveSessionStartedAt = 0;
   clearFarewellTimer();
-  hardResetWakeWordListener();
-  await new Promise((resolve) => setTimeout(resolve, 140));
 
   setVoiceStatus("会話モードを開始中...");
   if (liveStartButton) liveStartButton.disabled = true;
@@ -1016,6 +1010,19 @@ async function startLiveMode(options = {}) {
   }
 }
 
+async function triggerLiveStart(source = "button") {
+  if (entryStartInFlight || liveActive || liveStarting) return;
+  entryStartInFlight = true;
+  try {
+    hardResetWakeWordListener();
+    await new Promise((resolve) => setTimeout(resolve, 160));
+    if (source === "wake") setVoiceStatus("「もも」を検知。会話モードを開始します...");
+    await startLiveMode();
+  } finally {
+    entryStartInFlight = false;
+  }
+}
+
 function stopLiveMode(sendEnd = true) {
   liveStarting = false;
   autoGreetPending = false;
@@ -1077,7 +1084,9 @@ function stopLiveMode(sendEnd = true) {
   scheduleWakeWordListener(300);
 }
 
-liveStartButton?.addEventListener("click", () => startLiveMode());
+liveStartButton?.addEventListener("click", () => {
+  triggerLiveStart("button");
+});
 liveStopButton?.addEventListener("click", () => {
   localStopReason = "manual_button";
   stopLiveMode(true);
