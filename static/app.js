@@ -158,9 +158,16 @@ function shouldWakeListen() {
 
 function stopWakeWordListener() {
   // 監視中でないときは停止フラグを残さない（再開が永久にブロックされるのを防ぐ）
-  if (!wakeRecognition || !wakeListening) {
+  if (!wakeRecognition) {
     wakeStopping = false;
     wakeStarting = false;
+    if (wakeRestartTimer) {
+      clearTimeout(wakeRestartTimer);
+      wakeRestartTimer = null;
+    }
+    return;
+  }
+  if (!wakeListening && !wakeStarting && !wakeStopping) {
     if (wakeRestartTimer) {
       clearTimeout(wakeRestartTimer);
       wakeRestartTimer = null;
@@ -183,7 +190,7 @@ function stopWakeWordListener() {
 
 async function waitForWakeListenerStopped(maxMs = 1500) {
   const startedAt = Date.now();
-  while (wakeListening || wakeStarting) {
+  while (wakeListening || wakeStarting || wakeStopping) {
     if (Date.now() - startedAt >= maxMs) break;
     await new Promise((resolve) => setTimeout(resolve, 40));
   }
