@@ -131,7 +131,9 @@ function sendOneShotInstruction(text) {
 }
 
 function requestAutoGreeting() {
-  sendOneShotInstruction("起動直後の返答として「どうした？」の一言だけを自然に返してください。");
+  // Live接続直後の追加リクエストは環境により invalid argument を返すため、
+  // 起動時挨拶はローカル音声で確実に返す
+  speakWithBrowserTTS("どうした？");
 }
 
 function requestFarewellThenStop(word) {
