@@ -46,6 +46,8 @@ let wakeRetryDelayMs = 1200;
 let wakeRetryCount = 0;
 let autoGreetPending = false;
 let autoGreetInFlight = false;
+let autoGreetAttemptedAt = 0;
+let autoGreetPcmSnapshot = 0;
 let farewellPending = false;
 let farewellWord = "";
 let farewellHardStopTimer = null;
@@ -133,39 +135,24 @@ function sendOneShotInstruction(text) {
 
 function requestAutoGreeting() {
   // 「もも」起動時のみ実行される。
-  // 端末によっては起動直後の入力系が不安定になるため、
-  // 一度マイクを明示停止→再開し、挨拶はローカル再生で安定化する。
-  // 注: 起動直後のLiveへの1発instructionは環境により invalid argument を返すため使わない。
+  // 通常会話と同じ声に揃えるため、まずLive音声で挨拶を試みる。
+  // 失敗時のみローカルTTSへフォールバックする。
   if (autoGreetInFlight) return;
+  if (!liveActive || !liveSocket || liveSocket.readyState !== WebSocket.OPEN) return;
   autoGreetInFlight = true;
-
-  try {
-    stopMicStreaming();
-  } catch (_) {
-    // noop
-  }
-
+  autoGreetAttemptedAt = Date.now();
+  autoGreetPcmSnapshot = lastPcmPlaybackAt;
+  sendOneShotInstruction('起動直後の返答として「どうした？」の一言だけ返答してください。');
   setTimeout(() => {
     if (!liveActive) {
       autoGreetInFlight = false;
       return;
     }
-    startMicStreaming()
-      .then(() => {
-        if (liveActive) setVoiceStatus("会話モード開始。話しかけてください");
-        speakWithBrowserTTS("どうした？");
-        setTimeout(() => {
-          autoGreetInFlight = false;
-        }, 1200);
-      })
-      .catch((e) => {
-        lastLiveErrorDetail = `自動挨拶後のマイク再開失敗: ${e.message}`;
-        localStopReason = "auto_greet_mic_restart_failed";
-        setVoiceStatus(lastLiveErrorDetail);
-        stopLiveMode(true);
-        autoGreetInFlight = false;
-      });
-  }, 1450);
+    if (lastPcmPlaybackAt <= autoGreetPcmSnapshot) {
+      speakWithBrowserTTS("どうした？");
+    }
+    autoGreetInFlight = false;
+  }, 2600);
 }
 
 function requestFarewellThenStop(word) {
@@ -935,7 +922,19 @@ async function startLiveMode(options = {}) {
         if (typeof event.data === "string") {
           const msg = JSON.parse(event.data);
           if (msg.error) {
-            lastLiveErrorDetail = msg.error.message || JSON.stringify(msg.error);
+            const em = msg.error.message || JSON.stringify(msg.error);
+            const isWakeAutoGreetInvalidArg =
+              autoGreetInFlight &&
+              Date.now() - autoGreetAttemptedAt < 6000 &&
+              /invalid argument/i.test(em || "");
+            if (isWakeAutoGreetInvalidArg) {
+              // 起動挨拶の失敗は会話自体を落とさない
+              speakWithBrowserTTS("どうした？");
+              autoGreetInFlight = false;
+              setVoiceStatus("会話モード開始。話しかけてください");
+              return;
+            }
+            lastLiveErrorDetail = em;
             localStopReason = "server_message_error";
             setVoiceStatus(`会話モードエラー: ${lastLiveErrorDetail}`);
             stopLiveMode(true);
@@ -1018,6 +1017,8 @@ function stopLiveMode(sendEnd = true) {
   liveStarting = false;
   autoGreetPending = false;
   autoGreetInFlight = false;
+  autoGreetAttemptedAt = 0;
+  autoGreetPcmSnapshot = 0;
   farewellPending = false;
   farewellWord = "";
   farewellCandidateWord = "";
