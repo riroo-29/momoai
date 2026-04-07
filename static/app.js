@@ -45,6 +45,7 @@ let wakeStartLastAt = 0;
 let wakeRetryDelayMs = 1200;
 let wakeRetryCount = 0;
 let autoGreetPending = false;
+let autoGreetInFlight = false;
 let farewellPending = false;
 let farewellWord = "";
 let farewellHardStopTimer = null;
@@ -131,9 +132,39 @@ function sendOneShotInstruction(text) {
 }
 
 function requestAutoGreeting() {
-  // Live接続直後の追加リクエストは環境により invalid argument を返すため、
-  // 起動時挨拶はローカル音声で確実に返す
+  // 「もも」起動時のみ実行される。
+  // 端末によってはローカルTTS直後にマイク入力が止まるため、
+  // 挨拶前にマイクを明示停止し、挨拶後に確実に再開する。
+  if (autoGreetInFlight) return;
+  autoGreetInFlight = true;
+
+  try {
+    stopMicStreaming();
+  } catch (_) {
+    // noop
+  }
+
   speakWithBrowserTTS("どうした？");
+
+  setTimeout(() => {
+    if (!liveActive) {
+      autoGreetInFlight = false;
+      return;
+    }
+    startMicStreaming()
+      .then(() => {
+        if (liveActive) setVoiceStatus("会話モード開始。話しかけてください");
+      })
+      .catch((e) => {
+        lastLiveErrorDetail = `自動挨拶後のマイク再開失敗: ${e.message}`;
+        localStopReason = "auto_greet_mic_restart_failed";
+        setVoiceStatus(lastLiveErrorDetail);
+        stopLiveMode(true);
+      })
+      .finally(() => {
+        autoGreetInFlight = false;
+      });
+  }, 1450);
 }
 
 function requestFarewellThenStop(word) {
@@ -985,6 +1016,7 @@ async function startLiveMode(options = {}) {
 function stopLiveMode(sendEnd = true) {
   liveStarting = false;
   autoGreetPending = false;
+  autoGreetInFlight = false;
   farewellPending = false;
   farewellWord = "";
   farewellCandidateWord = "";
