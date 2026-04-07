@@ -817,13 +817,7 @@ async function startLiveMode(options = {}) {
 
   setVoiceStatus("会話モードを開始中...");
   if (liveStartButton) liveStartButton.disabled = true;
-  const startupWatchdog = setTimeout(() => {
-    if (liveActive) return;
-    liveStarting = false;
-    if (liveStartButton) liveStartButton.disabled = false;
-    setVoiceStatus("開始失敗: 起動処理が停止しました。再試行してください");
-    scheduleWakeWordListener(350);
-  }, 15000);
+  let startupWatchdog = null;
 
   try {
     const cfg = await withTimeout(getLiveConfig(), 8000, "設定取得");
@@ -851,6 +845,13 @@ async function startLiveMode(options = {}) {
     const socket = new WebSocket(wsUrl);
     socket.binaryType = "arraybuffer";
     liveSocket = socket;
+    startupWatchdog = setTimeout(() => {
+      if (liveActive) return;
+      liveStarting = false;
+      if (liveStartButton) liveStartButton.disabled = false;
+      setVoiceStatus("開始失敗: 起動処理が停止しました。再試行してください");
+      scheduleWakeWordListener(350);
+    }, 15000);
     const connectTimeoutMs = 10000;
     let connectTimer = setTimeout(() => {
       if (liveSocket !== socket || liveActive) return;
@@ -1022,7 +1023,7 @@ async function startLiveMode(options = {}) {
       setVoiceStatus(`会話モードが切断されました${detail}`);
     };
   } catch (e) {
-    clearTimeout(startupWatchdog);
+    if (startupWatchdog) clearTimeout(startupWatchdog);
     liveStarting = false;
     if (liveStartButton) liveStartButton.disabled = false;
     setVoiceStatus(`開始失敗: ${e.message}`);
