@@ -48,8 +48,11 @@ let autoGreetPending = false;
 let farewellPending = false;
 let farewellWord = "";
 let farewellHardStopTimer = null;
+let farewellCandidateWord = "";
+let farewellCandidateAt = 0;
 let liveSessionStartedAt = 0;
 let lastLiveErrorDetail = "";
+let localStopReason = "";
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
@@ -139,6 +142,7 @@ function requestFarewellThenStop(word) {
   clearFarewellTimer();
   farewellHardStopTimer = setTimeout(() => {
     if (!liveActive) return;
+    localStopReason = "farewell_timeout";
     stopLiveMode(true);
     setVoiceStatus("会話モードを停止しました");
   }, 6500);
@@ -629,7 +633,21 @@ function handleLiveMessage(message) {
   const canCheckFarewell = liveSessionStartedAt > 0 && Date.now() - liveSessionStartedAt > 4000;
   if (inputText && !farewellPending && canCheckFarewell) {
     const w = detectFarewellWord(inputText);
-    if (w) requestFarewellThenStop(w);
+    if (w) {
+      const now = Date.now();
+      // 誤認識による即切断を防ぐため、同じ終了ワードを短時間で2回確認したときのみ停止処理へ
+      if (farewellCandidateWord === w && now - farewellCandidateAt <= 3000) {
+        farewellCandidateWord = "";
+        farewellCandidateAt = 0;
+        requestFarewellThenStop(w);
+      } else {
+        farewellCandidateWord = w;
+        farewellCandidateAt = now;
+      }
+    } else {
+      farewellCandidateWord = "";
+      farewellCandidateAt = 0;
+    }
   }
 
   if (outputText) {
@@ -641,6 +659,7 @@ function handleLiveMessage(message) {
         clearFarewellTimer();
         setTimeout(() => {
           if (!liveActive) return;
+          localStopReason = "farewell_echo";
           stopLiveMode(true);
           setVoiceStatus("会話モードを停止しました");
         }, 850);
@@ -746,10 +765,13 @@ function stopMicStreaming() {
 async function startLiveMode(options = {}) {
   if (liveActive || liveStarting) return;
   liveStarting = true;
+  localStopReason = "";
   lastLiveErrorDetail = "";
   autoGreetPending = !!options.autoGreeting;
   farewellPending = false;
   farewellWord = "";
+  farewellCandidateWord = "";
+  farewellCandidateAt = 0;
   liveSessionStartedAt = 0;
   clearFarewellTimer();
   stopWakeWordListener();
@@ -813,6 +835,7 @@ async function startLiveMode(options = {}) {
         })
         .catch((e) => {
           lastLiveErrorDetail = `マイク開始失敗: ${e.message}`;
+          localStopReason = "mic_start_failed";
           setVoiceStatus(lastLiveErrorDetail);
           stopLiveMode(true);
         });
@@ -882,6 +905,7 @@ async function startLiveMode(options = {}) {
           const msg = JSON.parse(event.data);
           if (msg.error) {
             lastLiveErrorDetail = msg.error.message || JSON.stringify(msg.error);
+            localStopReason = "server_message_error";
             setVoiceStatus(`会話モードエラー: ${lastLiveErrorDetail}`);
             stopLiveMode(true);
             return;
@@ -944,6 +968,7 @@ async function startLiveMode(options = {}) {
       liveStarting = false;
       stopLiveMode(false);
       const baseDetail =
+        localStopReason ||
         lastLiveErrorDetail ||
         (event?.reason ? event.reason : `code:${event?.code || "unknown"}${setupCompleted ? "" : ",setup_incomplete"}`);
       const detail = baseDetail ? ` (${baseDetail})` : "";
@@ -963,6 +988,8 @@ function stopLiveMode(sendEnd = true) {
   autoGreetPending = false;
   farewellPending = false;
   farewellWord = "";
+  farewellCandidateWord = "";
+  farewellCandidateAt = 0;
   liveSessionStartedAt = 0;
   clearFarewellTimer();
 
@@ -1019,6 +1046,7 @@ function stopLiveMode(sendEnd = true) {
 
 liveStartButton?.addEventListener("click", () => startLiveMode());
 liveStopButton?.addEventListener("click", () => {
+  localStopReason = "manual_button";
   stopLiveMode(true);
   setVoiceStatus("会話モードを停止しました");
 });
