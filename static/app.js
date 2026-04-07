@@ -188,6 +188,32 @@ function stopWakeWordListener() {
   }
 }
 
+function hardResetWakeWordListener() {
+  if (wakeRestartTimer) {
+    clearTimeout(wakeRestartTimer);
+    wakeRestartTimer = null;
+  }
+  const rec = wakeRecognition;
+  wakeRecognition = null;
+  wakeListening = false;
+  wakeStarting = false;
+  wakeStopping = false;
+  if (!rec) return;
+  try {
+    rec.onresult = null;
+    rec.onerror = null;
+    rec.onend = null;
+  } catch (_) {
+    // noop
+  }
+  try {
+    if (typeof rec.abort === "function") rec.abort();
+    else rec.stop();
+  } catch (_) {
+    // noop
+  }
+}
+
 async function waitForWakeListenerStopped(maxMs = 1500) {
   const startedAt = Date.now();
   while (wakeListening || wakeStarting || wakeStopping) {
@@ -246,8 +272,8 @@ function startWakeWordListener() {
       if (liveActive || liveStarting) return;
       setVoiceStatus("「もも」を検知。会話モードを開始します...");
       // 導入だけウェイク処理、開始本体はボタン経路へ合流
-      stopWakeWordListener();
-      await waitForWakeListenerStopped(2000);
+      hardResetWakeWordListener();
+      await new Promise((resolve) => setTimeout(resolve, 140));
       // ボタン押下と完全に同じ開始経路へ統一
       liveStartButton?.click();
     };
@@ -783,8 +809,8 @@ async function startLiveMode(options = {}) {
   farewellCandidateAt = 0;
   liveSessionStartedAt = 0;
   clearFarewellTimer();
-  stopWakeWordListener();
-  await waitForWakeListenerStopped(1200);
+  hardResetWakeWordListener();
+  await new Promise((resolve) => setTimeout(resolve, 140));
 
   setVoiceStatus("会話モードを開始中...");
   if (liveStartButton) liveStartButton.disabled = true;
