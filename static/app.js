@@ -20,7 +20,6 @@ let silentGain = null;
 let playbackAnalyser = null;
 let playbackGain = null;
 let micStarted = false;
-let lastMicChunkAt = 0;
 let nextPlayAt = 0;
 
 let speechVideoTimer = null;
@@ -766,7 +765,6 @@ async function startMicStreaming() {
           },
         }),
       );
-      lastMicChunkAt = Date.now();
     } catch (_) {
       // noop
     }
@@ -808,7 +806,6 @@ async function startLiveMode(options = {}) {
   localStopReason = "";
   lastLiveErrorDetail = "";
   autoGreetPending = !!options.autoGreeting;
-  const entrySource = options.entrySource || "button";
   wakeStartQueued = false;
   farewellPending = false;
   farewellWord = "";
@@ -864,7 +861,6 @@ async function startLiveMode(options = {}) {
     const beginMicAfterSetup = () => {
       if (micStartedAfterSetup) return;
       micStartedAfterSetup = true;
-      const micStartAttemptAt = Date.now();
       startMicStreaming()
         .then(() => {
           liveStarting = false;
@@ -872,15 +868,6 @@ async function startLiveMode(options = {}) {
           if (autoGreetPending) {
             autoGreetPending = false;
             setTimeout(() => requestAutoGreeting(), 280);
-          }
-          if (entrySource === "wake") {
-            setTimeout(() => {
-              if (!liveActive || !liveSocket || liveSocket.readyState !== WebSocket.OPEN) return;
-              if (lastMicChunkAt >= micStartAttemptAt) return;
-              // ウェイク経路のみ、入力ストリームが立ち上がらない端末の自己回復
-              stopMicStreaming();
-              startMicStreaming().catch(() => {});
-            }, 1400);
           }
         })
         .catch((e) => {
@@ -1038,7 +1025,7 @@ async function triggerLiveStart(source = "button") {
     hardResetWakeWordListener();
     await new Promise((resolve) => setTimeout(resolve, 160));
     if (source === "wake") setVoiceStatus("「もも」を検知。会話モードを開始します...");
-    await startLiveMode({ entrySource: source });
+    await startLiveMode();
   } finally {
     entryStartInFlight = false;
   }
