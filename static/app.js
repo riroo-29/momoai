@@ -45,9 +45,6 @@ let wakeStartLastAt = 0;
 let wakeRetryDelayMs = 1200;
 let wakeRetryCount = 0;
 let autoGreetPending = false;
-let autoGreetInFlight = false;
-let autoGreetAttemptedAt = 0;
-let autoGreetPcmSnapshot = 0;
 let farewellPending = false;
 let farewellWord = "";
 let farewellHardStopTimer = null;
@@ -134,25 +131,7 @@ function sendOneShotInstruction(text) {
 }
 
 function requestAutoGreeting() {
-  // 「もも」起動時のみ実行される。
-  // 通常会話と同じ声に揃えるため、まずLive音声で挨拶を試みる。
-  // 失敗時のみローカルTTSへフォールバックする。
-  if (autoGreetInFlight) return;
-  if (!liveActive || !liveSocket || liveSocket.readyState !== WebSocket.OPEN) return;
-  autoGreetInFlight = true;
-  autoGreetAttemptedAt = Date.now();
-  autoGreetPcmSnapshot = lastPcmPlaybackAt;
-  sendOneShotInstruction('起動直後の返答として「どうした？」の一言だけ返答してください。');
-  setTimeout(() => {
-    if (!liveActive) {
-      autoGreetInFlight = false;
-      return;
-    }
-    if (lastPcmPlaybackAt <= autoGreetPcmSnapshot) {
-      speakWithBrowserTTS("どうした？");
-    }
-    autoGreetInFlight = false;
-  }, 2600);
+  // 仕様変更: 自動挨拶は行わず、起動後は即会話受付する
 }
 
 function requestFarewellThenStop(word) {
@@ -923,17 +902,6 @@ async function startLiveMode(options = {}) {
           const msg = JSON.parse(event.data);
           if (msg.error) {
             const em = msg.error.message || JSON.stringify(msg.error);
-            const isWakeAutoGreetInvalidArg =
-              autoGreetInFlight &&
-              Date.now() - autoGreetAttemptedAt < 6000 &&
-              /invalid argument/i.test(em || "");
-            if (isWakeAutoGreetInvalidArg) {
-              // 起動挨拶の失敗は会話自体を落とさない
-              speakWithBrowserTTS("どうした？");
-              autoGreetInFlight = false;
-              setVoiceStatus("会話モード開始。話しかけてください");
-              return;
-            }
             lastLiveErrorDetail = em;
             localStopReason = "server_message_error";
             setVoiceStatus(`会話モードエラー: ${lastLiveErrorDetail}`);
@@ -1016,9 +984,6 @@ async function startLiveMode(options = {}) {
 function stopLiveMode(sendEnd = true) {
   liveStarting = false;
   autoGreetPending = false;
-  autoGreetInFlight = false;
-  autoGreetAttemptedAt = 0;
-  autoGreetPcmSnapshot = 0;
   farewellPending = false;
   farewellWord = "";
   farewellCandidateWord = "";
