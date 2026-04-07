@@ -92,7 +92,7 @@ function detectFarewellWord(text) {
   const normalized = normalizeSpeechText(text);
   if (!normalized) return "";
   for (const rule of FAREWELL_RULES) {
-    if (rule.patterns.some((p) => normalized.includes(normalizeSpeechText(p)))) {
+    if (rule.patterns.some((p) => normalized === normalizeSpeechText(p))) {
       return rule.reply;
     }
   }
@@ -864,11 +864,15 @@ async function startLiveMode(options = {}) {
       if (liveStopButton) liveStopButton.disabled = false;
       setVoiceVideoMode("idle");
       setVoiceStatus("会話モード接続中... セットアップ中");
-      // 環境によってはsetupCompleteイベントが来ないため、短時間で会話開始にフォールバック
       setupAckTimer = setTimeout(() => {
         if (!liveActive || liveSocket !== socket || setupCompleted) return;
-        beginMicAfterSetup();
-      }, 1600);
+        lastLiveErrorDetail = "setupComplete未受信";
+        try {
+          socket.close();
+        } catch (_) {
+          // noop
+        }
+      }, 7000);
     };
 
     socket.onmessage = async (event) => {
