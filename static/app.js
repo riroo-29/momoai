@@ -817,7 +817,18 @@ async function startLiveMode(options = {}) {
 
   setVoiceStatus("会話モードを開始中...");
   if (liveStartButton) liveStartButton.disabled = true;
-  let startupWatchdog = null;
+  let startupWatchdog = setTimeout(() => {
+    if (liveActive || !liveStarting) return;
+    liveStarting = false;
+    if (liveStartButton) liveStartButton.disabled = false;
+    try {
+      if (liveSocket && liveSocket.readyState === WebSocket.OPEN) liveSocket.close();
+    } catch (_) {
+      // noop
+    }
+    setVoiceStatus("会話モード起動タイムアウト(5秒)。再度「もも」と話しかけてください");
+    scheduleWakeWordListener(350);
+  }, 5000);
 
   try {
     const cfg = await withTimeout(getLiveConfig(), 8000, "設定取得");
@@ -845,14 +856,7 @@ async function startLiveMode(options = {}) {
     const socket = new WebSocket(wsUrl);
     socket.binaryType = "arraybuffer";
     liveSocket = socket;
-    startupWatchdog = setTimeout(() => {
-      if (liveActive) return;
-      liveStarting = false;
-      if (liveStartButton) liveStartButton.disabled = false;
-      setVoiceStatus("開始失敗: 起動処理が停止しました。再試行してください");
-      scheduleWakeWordListener(350);
-    }, 15000);
-    const connectTimeoutMs = 10000;
+    const connectTimeoutMs = 4500;
     let connectTimer = setTimeout(() => {
       if (liveSocket !== socket || liveActive) return;
       liveStarting = false;
@@ -876,6 +880,10 @@ async function startLiveMode(options = {}) {
       micStartedAfterSetup = true;
       startMicStreaming()
         .then(() => {
+          if (startupWatchdog) {
+            clearTimeout(startupWatchdog);
+            startupWatchdog = null;
+          }
           liveStarting = false;
           setVoiceStatus("会話モード開始。話しかけてください");
           if (autoGreetPending) {
@@ -892,7 +900,6 @@ async function startLiveMode(options = {}) {
     };
 
     socket.onopen = () => {
-      clearTimeout(startupWatchdog);
       if (connectTimer) {
         clearTimeout(connectTimer);
         connectTimer = null;
@@ -942,7 +949,7 @@ async function startLiveMode(options = {}) {
         // setupComplete が来ない環境でも sessionResumptionUpdate が来るケースがあるため、
         // ここでは強制切断せず会話開始へ進める
         beginMicAfterSetup();
-      }, 9000);
+      }, 3200);
     };
 
     socket.onmessage = async (event) => {
@@ -989,7 +996,10 @@ async function startLiveMode(options = {}) {
 
     socket.onerror = (event) => {
       if (liveSocket !== socket) return;
-      clearTimeout(startupWatchdog);
+      if (startupWatchdog) {
+        clearTimeout(startupWatchdog);
+        startupWatchdog = null;
+      }
       if (connectTimer) {
         clearTimeout(connectTimer);
         connectTimer = null;
@@ -998,13 +1008,19 @@ async function startLiveMode(options = {}) {
         clearTimeout(setupAckTimer);
         setupAckTimer = null;
       }
+      liveStarting = false;
+      if (liveStartButton) liveStartButton.disabled = false;
       const reason = event?.message || "不明なエラー";
       setVoiceStatus(`会話モード接続エラー: ${reason}`);
+      scheduleWakeWordListener(350);
     };
 
     socket.onclose = (event) => {
       if (liveSocket !== socket) return;
-      clearTimeout(startupWatchdog);
+      if (startupWatchdog) {
+        clearTimeout(startupWatchdog);
+        startupWatchdog = null;
+      }
       if (connectTimer) {
         clearTimeout(connectTimer);
         connectTimer = null;
@@ -1023,7 +1039,10 @@ async function startLiveMode(options = {}) {
       setVoiceStatus(`会話モードが切断されました${detail}`);
     };
   } catch (e) {
-    if (startupWatchdog) clearTimeout(startupWatchdog);
+    if (startupWatchdog) {
+      clearTimeout(startupWatchdog);
+      startupWatchdog = null;
+    }
     liveStarting = false;
     if (liveStartButton) liveStartButton.disabled = false;
     setVoiceStatus(`開始失敗: ${e.message}`);
