@@ -133,8 +133,8 @@ function sendOneShotInstruction(text) {
 
 function requestAutoGreeting() {
   // 「もも」起動時のみ実行される。
-  // 端末によってはローカルTTS直後にマイク入力が止まるため、
-  // 挨拶前にマイクを明示停止し、挨拶後に確実に再開する。
+  // 端末によっては起動直後の入力系が不安定になるため、
+  // 一度マイクを明示停止→再開し、その後にLive音声で挨拶させる。
   if (autoGreetInFlight) return;
   autoGreetInFlight = true;
 
@@ -144,8 +144,6 @@ function requestAutoGreeting() {
     // noop
   }
 
-  speakWithBrowserTTS("どうした？");
-
   setTimeout(() => {
     if (!liveActive) {
       autoGreetInFlight = false;
@@ -154,14 +152,31 @@ function requestAutoGreeting() {
     startMicStreaming()
       .then(() => {
         if (liveActive) setVoiceStatus("会話モード開始。話しかけてください");
+        const elapsed = liveSessionStartedAt ? Date.now() - liveSessionStartedAt : 0;
+        const waitMs = Math.max(1200, 2600 - elapsed);
+        const pcmSnapshot = lastPcmPlaybackAt;
+        setTimeout(() => {
+          if (!liveActive) {
+            autoGreetInFlight = false;
+            return;
+          }
+          sendOneShotInstruction('起動直後の返答として「どうした？」の一言だけ返答してください。');
+          // 返答音声が来なかった環境だけローカルTTSにフォールバック
+          setTimeout(() => {
+            if (!liveActive) {
+              autoGreetInFlight = false;
+              return;
+            }
+            if (lastPcmPlaybackAt <= pcmSnapshot) speakWithBrowserTTS("どうした？");
+            autoGreetInFlight = false;
+          }, 2600);
+        }, waitMs);
       })
       .catch((e) => {
         lastLiveErrorDetail = `自動挨拶後のマイク再開失敗: ${e.message}`;
         localStopReason = "auto_greet_mic_restart_failed";
         setVoiceStatus(lastLiveErrorDetail);
         stopLiveMode(true);
-      })
-      .finally(() => {
         autoGreetInFlight = false;
       });
   }, 1450);
