@@ -153,7 +153,7 @@ function getSpeechRecognitionCtor() {
 }
 
 function shouldWakeListen() {
-  return !liveActive && document.visibilityState === "visible";
+  return !liveActive && !liveStarting && document.visibilityState === "visible";
 }
 
 function stopWakeWordListener() {
@@ -245,6 +245,9 @@ function startWakeWordListener() {
       if (!includesWakeWord(heard)) return;
       if (liveActive || liveStarting) return;
       setVoiceStatus("「もも」を検知。会話モードを開始します...");
+      // 導入だけウェイク処理、開始本体はボタン経路へ合流
+      stopWakeWordListener();
+      await waitForWakeListenerStopped(2000);
       // ボタン押下と完全に同じ開始経路へ統一
       liveStartButton?.click();
     };
