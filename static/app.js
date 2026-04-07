@@ -889,13 +889,10 @@ async function startLiveMode(options = {}) {
       setVoiceStatus("会話モード接続中... セットアップ中");
       setupAckTimer = setTimeout(() => {
         if (!liveActive || liveSocket !== socket || setupCompleted) return;
-        lastLiveErrorDetail = "setupComplete未受信";
-        try {
-          socket.close();
-        } catch (_) {
-          // noop
-        }
-      }, 7000);
+        // setupComplete が来ない環境でも sessionResumptionUpdate が来るケースがあるため、
+        // ここでは強制切断せず会話開始へ進める
+        beginMicAfterSetup();
+      }, 9000);
     };
 
     socket.onmessage = async (event) => {
@@ -910,7 +907,7 @@ async function startLiveMode(options = {}) {
             stopLiveMode(true);
             return;
           }
-          if (msg.setupComplete) {
+          if (msg.setupComplete || msg.sessionResumptionUpdate) {
             setupCompleted = true;
             if (setupAckTimer) {
               clearTimeout(setupAckTimer);
