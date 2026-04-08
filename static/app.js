@@ -56,6 +56,9 @@ let lastLiveErrorDetail = "";
 let localStopReason = "";
 let entryStartInFlight = false;
 let audioUnlockHintShown = false;
+let liveConfigCache = null;
+let liveConfigFetchedAt = 0;
+let liveConfigFetchPromise = null;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
@@ -644,11 +647,26 @@ async function playPcmInt16(pcm16, sampleRate = 24000) {
   lastPcmPlaybackAt = Date.now();
 }
 
-async function getLiveConfig() {
-  const res = await fetch("/api/live-config");
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Live設定の取得に失敗しました");
-  return data;
+async function getLiveConfig(forceRefresh = false) {
+  const now = Date.now();
+  const cacheTtlMs = 10 * 60 * 1000;
+  if (!forceRefresh && liveConfigCache && now - liveConfigFetchedAt < cacheTtlMs) return liveConfigCache;
+  if (!forceRefresh && liveConfigFetchPromise) return liveConfigFetchPromise;
+
+  liveConfigFetchPromise = (async () => {
+    const res = await fetch("/api/live-config");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Live設定の取得に失敗しました");
+    liveConfigCache = data;
+    liveConfigFetchedAt = Date.now();
+    return data;
+  })();
+
+  try {
+    return await liveConfigFetchPromise;
+  } finally {
+    liveConfigFetchPromise = null;
+  }
 }
 
 function withTimeout(promise, ms, label) {
@@ -831,7 +849,7 @@ async function startLiveMode(options = {}) {
   }, 5000);
 
   try {
-    const cfg = await withTimeout(getLiveConfig(), 8000, "設定取得");
+    const cfg = await withTimeout(getLiveConfig(), 2500, "設定取得");
     if (!cfg.apiKey) throw new Error("GEMINI_API_KEY が未設定です");
 
     audioContext = audioContext || new AudioContext();
@@ -1170,6 +1188,7 @@ for (const v of [characterVideo, characterVideoBuffer]) {
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
+    getLiveConfig().catch(() => {});
     scheduleWakeWordListener(250);
     if (currentVoiceVideoMode === "speak") setVoiceVideoMode("speak");
     else ensureIdleVideoPlayback();
@@ -1216,4 +1235,5 @@ window.visualViewport?.addEventListener("resize", syncIosViewportHeight);
 window.visualViewport?.addEventListener("scroll", syncIosViewportHeight);
 
 setVoiceStatus("準備完了。待機中は「もも」で会話モード開始できます。");
+getLiveConfig().catch(() => {});
 startWakeWordListener();
