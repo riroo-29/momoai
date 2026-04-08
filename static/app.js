@@ -1028,6 +1028,12 @@ async function startLiveMode(options = {}) {
     setVoiceStatus("会話モード起動タイムアウト(5秒)。再度「もも」と話しかけてください");
     scheduleWakeWordListener(350);
   }, 5000);
+  const clearStartupWatchdog = () => {
+    if (startupWatchdog) {
+      clearTimeout(startupWatchdog);
+      startupWatchdog = null;
+    }
+  };
 
   try {
     const cfg = await withTimeout(getLiveConfig(), 2500, "設定取得");
@@ -1038,6 +1044,7 @@ async function startLiveMode(options = {}) {
       await audioContext.resume().catch(() => {});
     }
     if (audioContext.state !== "running") {
+      clearStartupWatchdog();
       liveStarting = false;
       if (liveStartButton) liveStartButton.disabled = false;
       if (!audioUnlockHintShown) {
@@ -1090,10 +1097,7 @@ async function startLiveMode(options = {}) {
     const beginMicAfterSetup = () => {
       if (micStartedAfterSetup) return;
       micStartedAfterSetup = true;
-      if (startupWatchdog) {
-        clearTimeout(startupWatchdog);
-        startupWatchdog = null;
-      }
+      clearStartupWatchdog();
       liveStarting = false;
       const elapsed = wakeDetectedAt > 0 ? Date.now() - wakeDetectedAt : 0;
       setVoiceStatus(
@@ -1197,10 +1201,7 @@ async function startLiveMode(options = {}) {
 
     socket.onerror = (event) => {
       if (liveSocket !== socket) return;
-      if (startupWatchdog) {
-        clearTimeout(startupWatchdog);
-        startupWatchdog = null;
-      }
+      clearStartupWatchdog();
       if (connectTimer) {
         clearTimeout(connectTimer);
         connectTimer = null;
@@ -1218,10 +1219,7 @@ async function startLiveMode(options = {}) {
 
     socket.onclose = (event) => {
       if (liveSocket !== socket) return;
-      if (startupWatchdog) {
-        clearTimeout(startupWatchdog);
-        startupWatchdog = null;
-      }
+      clearStartupWatchdog();
       if (connectTimer) {
         clearTimeout(connectTimer);
         connectTimer = null;
@@ -1240,10 +1238,7 @@ async function startLiveMode(options = {}) {
       setVoiceStatus(`会話モードが切断されました${detail}`);
     };
   } catch (e) {
-    if (startupWatchdog) {
-      clearTimeout(startupWatchdog);
-      startupWatchdog = null;
-    }
+    clearStartupWatchdog();
     liveStarting = false;
     if (liveStartButton) liveStartButton.disabled = false;
     setVoiceStatus(`開始失敗: ${e.message}`);
