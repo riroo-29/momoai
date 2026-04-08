@@ -1097,12 +1097,8 @@ async function triggerLiveStart(source = "button") {
   if (entryStartInFlight || liveActive || liveStarting) return;
   entryStartInFlight = true;
   try {
-    if (source === "wake") {
-      stopWakeWordListener();
-      await waitForWakeListenerStopped(1200);
-    } else {
-      hardResetWakeWordListener();
-    }
+    // 起動入口の差分をなくし、ボタン開始と同一の前処理に統一する
+    hardResetWakeWordListener();
     if (source === "wake") setVoiceStatus("「もも」を検知。会話モードを開始します...");
     await startLiveMode();
   } finally {
