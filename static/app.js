@@ -798,7 +798,25 @@ async function startMicStreaming() {
   micStarted = true;
 }
 
-function stopMicStreaming() {
+async function warmupMicStream() {
+  if (!navigator.mediaDevices?.getUserMedia) return;
+  if (micStream && micStream.active) return;
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
+  } catch (_) {
+    // noop
+  }
+}
+
+function stopMicStreaming(options = {}) {
+  const { releaseStream = false } = options;
   if (processor) {
     processor.disconnect();
     processor.onaudioprocess = null;
@@ -812,7 +830,7 @@ function stopMicStreaming() {
     micSource.disconnect();
     micSource = null;
   }
-  if (micStream) {
+  if (releaseStream && micStream) {
     micStream.getTracks().forEach((t) => t.stop());
     micStream = null;
   }
@@ -967,7 +985,7 @@ async function startLiveMode(options = {}) {
         // setupComplete が来ない環境でも sessionResumptionUpdate が来るケースがあるため、
         // ここでは強制切断せず会話開始へ進める
         beginMicAfterSetup();
-      }, 3200);
+      }, 1800);
     };
 
     socket.onmessage = async (event) => {
@@ -1099,7 +1117,8 @@ function stopLiveMode(sendEnd = true) {
     }
   }
 
-  stopMicStreaming();
+  // 再起動高速化のため、マイクストリームは保持してノードのみ解除
+  stopMicStreaming({ releaseStream: false });
 
   if (liveSocket) {
     try {
@@ -1204,6 +1223,7 @@ for (const evt of ["click", "touchstart", "keydown"]) {
       if (audioContext && audioContext.state !== "running") {
         audioContext.resume().catch(() => {});
       }
+      warmupMicStream();
       if (!liveActive && wakeGestureArmed) startWakeWordListener();
       if (currentVoiceVideoMode === "speak") setVoiceVideoMode("speak");
       else ensureIdleVideoPlayback();
@@ -1233,6 +1253,9 @@ window.addEventListener("orientationchange", syncIosViewportHeight);
 window.addEventListener("pageshow", syncIosViewportHeight);
 window.visualViewport?.addEventListener("resize", syncIosViewportHeight);
 window.visualViewport?.addEventListener("scroll", syncIosViewportHeight);
+window.addEventListener("beforeunload", () => {
+  stopMicStreaming({ releaseStream: true });
+});
 
 setVoiceStatus("準備完了。待機中は「もも」で会話モード開始できます。");
 getLiveConfig().catch(() => {});
