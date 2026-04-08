@@ -44,7 +44,6 @@ let wakeStarting = false;
 let wakeStartLastAt = 0;
 let wakeRetryDelayMs = 1200;
 let wakeRetryCount = 0;
-let wakeStartQueued = false;
 let autoGreetPending = false;
 let farewellPending = false;
 let farewellWord = "";
@@ -276,9 +275,8 @@ function startWakeWordListener() {
       }
       if (!includesWakeWord(heard)) return;
       if (liveActive || liveStarting) return;
-      wakeStartQueued = true;
-      setVoiceStatus("「もも」を検知。会話モードを開始します...");
-      stopWakeWordListener();
+      // onend待ちをやめて即開始へ合流（起動遅延を抑える）
+      await triggerLiveStart("wake");
     };
 
     wakeRecognition.onerror = (event) => {
@@ -307,10 +305,6 @@ function startWakeWordListener() {
       wakeListening = false;
       if (wakeStopping) {
         wakeStopping = false;
-        if (wakeStartQueued && !liveActive && !liveStarting) {
-          wakeStartQueued = false;
-          triggerLiveStart("wake");
-        }
         return;
       }
       if (shouldWakeListen()) scheduleWakeWordListener(Math.max(1000, wakeRetryDelayMs));
@@ -843,7 +837,6 @@ async function startLiveMode(options = {}) {
   localStopReason = "";
   lastLiveErrorDetail = "";
   autoGreetPending = !!options.autoGreeting;
-  wakeStartQueued = false;
   farewellPending = false;
   farewellWord = "";
   farewellCandidateWord = "";
