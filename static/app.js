@@ -792,6 +792,22 @@ async function startMicStreaming() {
   micStarted = true;
 }
 
+async function startMicStreamingWithRetry(maxMs = 3200, intervalMs = 160) {
+  const startedAt = Date.now();
+  let lastError = null;
+  while (Date.now() - startedAt <= maxMs) {
+    try {
+      await startMicStreaming();
+      return;
+    } catch (e) {
+      lastError = e;
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+  }
+  if (lastError) throw lastError;
+  throw new Error("マイク開始に失敗しました");
+}
+
 async function warmupMicStream() {
   if (!navigator.mediaDevices?.getUserMedia) return;
   if (micStream && micStream.active) return;
@@ -907,19 +923,17 @@ async function startLiveMode(options = {}) {
     const beginMicAfterSetup = () => {
       if (micStartedAfterSetup) return;
       micStartedAfterSetup = true;
-      startMicStreaming()
-        .then(() => {
-          if (startupWatchdog) {
-            clearTimeout(startupWatchdog);
-            startupWatchdog = null;
-          }
-          liveStarting = false;
-          setVoiceStatus("会話モード開始。話しかけてください");
-          if (autoGreetPending) {
-            autoGreetPending = false;
-            setTimeout(() => requestAutoGreeting(), 280);
-          }
-        })
+      if (startupWatchdog) {
+        clearTimeout(startupWatchdog);
+        startupWatchdog = null;
+      }
+      liveStarting = false;
+      setVoiceStatus("会話モード開始。話しかけてください");
+      if (autoGreetPending) {
+        autoGreetPending = false;
+        setTimeout(() => requestAutoGreeting(), 280);
+      }
+      startMicStreamingWithRetry()
         .catch((e) => {
           lastLiveErrorDetail = `マイク開始失敗: ${e.message}`;
           localStopReason = "mic_start_failed";
@@ -1083,8 +1097,12 @@ async function triggerLiveStart(source = "button") {
   if (entryStartInFlight || liveActive || liveStarting) return;
   entryStartInFlight = true;
   try {
-    hardResetWakeWordListener();
-    await new Promise((resolve) => setTimeout(resolve, 160));
+    if (source === "wake") {
+      stopWakeWordListener();
+      await waitForWakeListenerStopped(1200);
+    } else {
+      hardResetWakeWordListener();
+    }
     if (source === "wake") setVoiceStatus("「もも」を検知。会話モードを開始します...");
     await startLiveMode();
   } finally {
