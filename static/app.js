@@ -44,6 +44,8 @@ let wakeStarting = false;
 let wakeStartLastAt = 0;
 let wakeRetryDelayMs = 1200;
 let wakeRetryCount = 0;
+let wakeMatchLock = false;
+let wakeDetectedAt = 0;
 let autoGreetPending = false;
 let farewellPending = false;
 let farewellWord = "";
@@ -186,6 +188,8 @@ function stopWakeWordListener() {
   }
   wakeStopping = true;
   wakeStarting = false;
+  wakeMatchLock = false;
+  wakeDetectedAt = 0;
   if (wakeRestartTimer) {
     clearTimeout(wakeRestartTimer);
     wakeRestartTimer = null;
@@ -208,6 +212,8 @@ function hardResetWakeWordListener() {
   wakeListening = false;
   wakeStarting = false;
   wakeStopping = false;
+  wakeMatchLock = false;
+  wakeDetectedAt = 0;
   if (!rec) return;
   try {
     rec.onresult = null;
@@ -269,17 +275,21 @@ function startWakeWordListener() {
     wakeRecognition = new SpeechRecognitionCtor();
     wakeRecognition.lang = "ja-JP";
     wakeRecognition.continuous = true;
-    wakeRecognition.interimResults = false;
+    // final待ちを避けて起動遅延を抑える
+    wakeRecognition.interimResults = true;
     wakeRecognition.maxAlternatives = 1;
 
     wakeRecognition.onresult = async (event) => {
       if (!shouldWakeListen()) return;
+      if (wakeMatchLock) return;
       let heard = "";
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         heard += event.results[i][0]?.transcript || "";
       }
       if (!includesWakeWord(heard)) return;
       if (liveActive || liveStarting) return;
+      wakeMatchLock = true;
+      wakeDetectedAt = Date.now();
       // onend待ちをやめて即開始へ合流（起動遅延を抑える）
       await triggerLiveStart("wake");
     };
@@ -308,6 +318,7 @@ function startWakeWordListener() {
     wakeRecognition.onend = () => {
       wakeStarting = false;
       wakeListening = false;
+      wakeMatchLock = false;
       if (wakeStopping) {
         wakeStopping = false;
         return;
@@ -319,6 +330,8 @@ function startWakeWordListener() {
   try {
     wakeStarting = true;
     wakeStartLastAt = Date.now();
+    wakeMatchLock = false;
+    wakeDetectedAt = 0;
     wakeRecognition.start();
     wakeListening = true;
     wakeGestureArmed = false;
@@ -1082,7 +1095,13 @@ async function startLiveMode(options = {}) {
         startupWatchdog = null;
       }
       liveStarting = false;
-      setVoiceStatus("会話モード開始。話しかけてください");
+      const elapsed = wakeDetectedAt > 0 ? Date.now() - wakeDetectedAt : 0;
+      setVoiceStatus(
+        elapsed > 0
+          ? `会話モード開始。話しかけてください（起動 ${elapsed}ms）`
+          : "会話モード開始。話しかけてください",
+      );
+      wakeDetectedAt = 0;
       if (autoGreetPending) {
         autoGreetPending = false;
         setTimeout(() => requestAutoGreeting(), 280);
