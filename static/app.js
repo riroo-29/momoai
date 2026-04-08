@@ -58,6 +58,11 @@ let audioUnlockHintShown = false;
 let liveConfigCache = null;
 let liveConfigFetchedAt = 0;
 let liveConfigFetchPromise = null;
+let preparedLiveSocket = null;
+let preparedLiveReady = false;
+let preparedLiveModel = "";
+let preparedLiveVoice = "";
+let preparedLivePriming = false;
 
 const idleVideoSrc = characterVideo?.dataset.idleSrc || "/voice_idle.mp4";
 const speakVideoSrc = characterVideo?.dataset.speakSrc || "/voice_speaking.mp4";
@@ -375,6 +380,142 @@ function normalizeLiveModelName(name) {
 
   const normalized = aliases.get(noPrefix) || noPrefix;
   return `models/${normalized}`;
+}
+
+function buildLiveSetupMessage(modelName, voiceName) {
+  return {
+    setup: {
+      model: modelName,
+      generationConfig: {
+        responseModalities: ["AUDIO"],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: voiceName || "Kore",
+            },
+          },
+        },
+      },
+      systemInstruction: {
+        parts: [
+          {
+            text: "あなたはオリジナル2Dキャラクター『焔丸(ほむらまる)』です。明るく勇気づける少年剣士口調で、相手を主(あるじ)と呼び、短く自然に話してください。",
+          },
+        ],
+      },
+      inputAudioTranscription: {},
+      outputAudioTranscription: {},
+    },
+  };
+}
+
+function clearPreparedLiveSession(closeSocket = true) {
+  const s = preparedLiveSocket;
+  preparedLiveSocket = null;
+  preparedLiveReady = false;
+  preparedLiveModel = "";
+  preparedLiveVoice = "";
+  if (!closeSocket || !s) return;
+  try {
+    s.onopen = null;
+    s.onmessage = null;
+    s.onerror = null;
+    s.onclose = null;
+  } catch (_) {
+    // noop
+  }
+  try {
+    s.close();
+  } catch (_) {
+    // noop
+  }
+}
+
+async function primePreparedLiveSession() {
+  if (preparedLivePriming || liveActive || liveStarting || document.visibilityState !== "visible") return;
+  preparedLivePriming = true;
+  try {
+    const cfg = await getLiveConfig();
+    if (!cfg.apiKey) return;
+    const modelName = normalizeLiveModelName(cfg.liveModel);
+    const voiceName = liveVoiceSelect?.value || "Kore";
+
+    if (
+      preparedLiveSocket &&
+      preparedLiveReady &&
+      preparedLiveSocket.readyState === WebSocket.OPEN &&
+      preparedLiveModel === modelName &&
+      preparedLiveVoice === voiceName
+    ) {
+      return;
+    }
+
+    clearPreparedLiveSession(true);
+
+    const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cfg.apiKey)}`;
+    const socket = new WebSocket(wsUrl);
+    socket.binaryType = "arraybuffer";
+    preparedLiveSocket = socket;
+    preparedLiveReady = false;
+    preparedLiveModel = modelName;
+    preparedLiveVoice = voiceName;
+
+    let openTimeout = setTimeout(() => {
+      if (preparedLiveSocket !== socket || preparedLiveReady) return;
+      clearPreparedLiveSession(true);
+    }, 4500);
+
+    socket.onopen = () => {
+      if (preparedLiveSocket !== socket) return;
+      try {
+        socket.send(JSON.stringify(buildLiveSetupMessage(modelName, voiceName)));
+      } catch (_) {
+        clearPreparedLiveSession(true);
+      }
+    };
+
+    socket.onmessage = async (event) => {
+      if (preparedLiveSocket !== socket) return;
+      try {
+        let msg = null;
+        if (typeof event.data === "string") msg = JSON.parse(event.data);
+        else if (event.data instanceof Blob) msg = JSON.parse(await event.data.text());
+        else if (event.data instanceof ArrayBuffer) msg = JSON.parse(new TextDecoder().decode(event.data));
+        if (!msg) return;
+        if (msg.error) {
+          clearPreparedLiveSession(true);
+          return;
+        }
+        if (msg.setupComplete || msg.sessionResumptionUpdate) {
+          preparedLiveReady = true;
+          if (openTimeout) {
+            clearTimeout(openTimeout);
+            openTimeout = null;
+          }
+        }
+      } catch (_) {
+        // noop
+      }
+    };
+
+    socket.onerror = () => {
+      if (openTimeout) {
+        clearTimeout(openTimeout);
+        openTimeout = null;
+      }
+      if (preparedLiveSocket === socket) clearPreparedLiveSession(false);
+    };
+
+    socket.onclose = () => {
+      if (openTimeout) {
+        clearTimeout(openTimeout);
+        openTimeout = null;
+      }
+      if (preparedLiveSocket === socket) clearPreparedLiveSession(false);
+    };
+  } finally {
+    preparedLivePriming = false;
+  }
 }
 
 function speakWithBrowserTTS(text) {
@@ -897,25 +1038,38 @@ async function startLiveMode(options = {}) {
     }
     nextPlayAt = 0;
 
-    const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cfg.apiKey)}`;
-    const socket = new WebSocket(wsUrl);
-    socket.binaryType = "arraybuffer";
-    liveSocket = socket;
-    const connectTimeoutMs = 4500;
-    let connectTimer = setTimeout(() => {
-      if (liveSocket !== socket || liveActive) return;
-      liveStarting = false;
-      try {
-        socket.close();
-      } catch (_) {
-        // noop
-      }
-      if (liveStartButton) liveStartButton.disabled = false;
-      setVoiceStatus("会話モード接続タイムアウト: 回線状態を確認して再試行してください");
-      scheduleWakeWordListener(300);
-    }, connectTimeoutMs);
-
     const modelName = normalizeLiveModelName(cfg.liveModel);
+    const voiceName = liveVoiceSelect?.value || "Kore";
+    const canAdoptPrepared =
+      preparedLiveSocket &&
+      preparedLiveReady &&
+      preparedLiveSocket.readyState === WebSocket.OPEN &&
+      preparedLiveModel === modelName &&
+      preparedLiveVoice === voiceName;
+    const socket = canAdoptPrepared ? preparedLiveSocket : new WebSocket(
+      `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cfg.apiKey)}`,
+    );
+    if (!canAdoptPrepared) socket.binaryType = "arraybuffer";
+    liveSocket = socket;
+    if (canAdoptPrepared) clearPreparedLiveSession(false);
+
+    const connectTimeoutMs = 4500;
+    let connectTimer = null;
+    if (!canAdoptPrepared) {
+      connectTimer = setTimeout(() => {
+        if (liveSocket !== socket || liveActive) return;
+        liveStarting = false;
+        try {
+          socket.close();
+        } catch (_) {
+          // noop
+        }
+        if (liveStartButton) liveStartButton.disabled = false;
+        setVoiceStatus("会話モード接続タイムアウト: 回線状態を確認して再試行してください");
+        scheduleWakeWordListener(300);
+      }, connectTimeoutMs);
+    }
+
     let setupCompleted = false;
     let micStartedAfterSetup = false;
     let setupAckTimer = null;
@@ -955,32 +1109,7 @@ async function startLiveMode(options = {}) {
         }
         return;
       }
-      const setupMessage = {
-        setup: {
-          model: modelName,
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: liveVoiceSelect?.value || "Kore",
-                },
-              },
-            },
-          },
-          systemInstruction: {
-            parts: [
-              {
-                text: "あなたはオリジナル2Dキャラクター『焔丸(ほむらまる)』です。明るく勇気づける少年剣士口調で、相手を主(あるじ)と呼び、短く自然に話してください。",
-              },
-            ],
-          },
-          inputAudioTranscription: {},
-          outputAudioTranscription: {},
-        },
-      };
-
-      socket.send(JSON.stringify(setupMessage));
+      socket.send(JSON.stringify(buildLiveSetupMessage(modelName, voiceName)));
       liveActive = true;
       liveSessionStartedAt = Date.now();
       liveStartButton?.classList.add("live-on");
@@ -994,6 +1123,16 @@ async function startLiveMode(options = {}) {
         beginMicAfterSetup();
       }, 1800);
     };
+
+    if (canAdoptPrepared) {
+      liveActive = true;
+      liveSessionStartedAt = Date.now();
+      liveStartButton?.classList.add("live-on");
+      if (liveStopButton) liveStopButton.disabled = false;
+      setVoiceVideoMode("idle");
+      setupCompleted = true;
+      beginMicAfterSetup();
+    }
 
     socket.onmessage = async (event) => {
       if (liveSocket !== socket) return;
@@ -1166,6 +1305,9 @@ function stopLiveMode(sendEnd = true) {
   }
 
   scheduleWakeWordListener(300);
+  setTimeout(() => {
+    primePreparedLiveSession().catch(() => {});
+  }, 220);
 }
 
 liveStartButton?.addEventListener("click", () => {
@@ -1215,6 +1357,7 @@ for (const v of [characterVideo, characterVideoBuffer]) {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
     getLiveConfig().catch(() => {});
+    primePreparedLiveSession().catch(() => {});
     scheduleWakeWordListener(250);
     if (currentVoiceVideoMode === "speak") setVoiceVideoMode("speak");
     else ensureIdleVideoPlayback();
@@ -1231,6 +1374,7 @@ for (const evt of ["click", "touchstart", "keydown"]) {
         audioContext.resume().catch(() => {});
       }
       warmupMicStream();
+      primePreparedLiveSession().catch(() => {});
       if (!liveActive && wakeGestureArmed) startWakeWordListener();
       if (currentVoiceVideoMode === "speak") setVoiceVideoMode("speak");
       else ensureIdleVideoPlayback();
@@ -1266,4 +1410,5 @@ window.addEventListener("beforeunload", () => {
 
 setVoiceStatus("準備完了。待機中は「もも」で会話モード開始できます。");
 getLiveConfig().catch(() => {});
+primePreparedLiveSession().catch(() => {});
 startWakeWordListener();
