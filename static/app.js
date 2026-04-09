@@ -110,8 +110,10 @@ function includesWakeWord(text) {
 function detectFarewellWord(text) {
   const normalized = normalizeSpeechText(text);
   if (!normalized) return "";
+  // 誤検知防止: 終了ワードは短い単発発話のみ対象にする
+  if (normalized.length > 10) return "";
   for (const rule of FAREWELL_RULES) {
-    if (rule.patterns.some((p) => normalized.includes(normalizeSpeechText(p)))) {
+    if (rule.patterns.some((p) => normalized === normalizeSpeechText(p))) {
       return rule.reply;
     }
   }
