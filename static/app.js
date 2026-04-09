@@ -1016,18 +1016,7 @@ async function startLiveMode(options = {}) {
 
   setVoiceStatus("会話モードを開始中...");
   if (liveStartButton) liveStartButton.disabled = true;
-  let startupWatchdog = setTimeout(() => {
-    if (liveActive || !liveStarting) return;
-    liveStarting = false;
-    if (liveStartButton) liveStartButton.disabled = false;
-    try {
-      if (liveSocket && liveSocket.readyState === WebSocket.OPEN) liveSocket.close();
-    } catch (_) {
-      // noop
-    }
-    setVoiceStatus("会話モード起動タイムアウト(5秒)。再度「もも」と話しかけてください");
-    scheduleWakeWordListener(350);
-  }, 5000);
+  let startupWatchdog = null;
   const clearStartupWatchdog = () => {
     if (startupWatchdog) {
       clearTimeout(startupWatchdog);
