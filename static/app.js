@@ -57,6 +57,7 @@ let lastLiveErrorDetail = "";
 let localStopReason = "";
 let entryStartInFlight = false;
 let audioUnlockHintShown = false;
+let pendingStartAfterUnlock = false;
 let liveConfigCache = null;
 let liveConfigFetchedAt = 0;
 let liveConfigFetchPromise = null;
@@ -1007,6 +1008,7 @@ async function startLiveMode(options = {}) {
   localStopReason = "";
   lastLiveErrorDetail = "";
   autoGreetPending = !!options.autoGreeting;
+  pendingStartAfterUnlock = false;
   farewellPending = false;
   farewellWord = "";
   farewellCandidateWord = "";
@@ -1041,13 +1043,13 @@ async function startLiveMode(options = {}) {
       clearStartupWatchdog();
       liveStarting = false;
       if (liveStartButton) liveStartButton.disabled = false;
+      pendingStartAfterUnlock = true;
       if (!audioUnlockHintShown) {
         audioUnlockHintShown = true;
-        setVoiceStatus("音声初期化待ち: 1回だけ画面タップ後に再度「もも」と話しかけてください");
+        setVoiceStatus("音声準備中です。画面を1回タップすると自動で会話を開始します。");
       } else {
-        setVoiceStatus("音声初期化待ち: 画面をタップしてから再試行してください");
+        setVoiceStatus("画面を1回タップすると自動で会話を開始します。");
       }
-      scheduleWakeWordListener(500);
       return;
     }
     nextPlayAt = 0;
@@ -1247,7 +1249,7 @@ async function triggerLiveStart(source = "button") {
     // 起動入口の差分をなくし、ボタン開始と同一の前処理に統一する
     hardResetWakeWordListener();
     if (source === "wake") setVoiceStatus("「もも」を検知。会話モードを開始します...");
-    await startLiveMode();
+    await startLiveMode({ entrySource: source });
   } finally {
     entryStartInFlight = false;
   }
@@ -1377,9 +1379,13 @@ document.addEventListener("visibilitychange", () => {
 for (const evt of ["click", "touchstart", "keydown"]) {
   window.addEventListener(
     evt,
-    () => {
+    async () => {
       if (audioContext && audioContext.state !== "running") {
-        audioContext.resume().catch(() => {});
+        await withTimeout(audioContext.resume().catch(() => {}), 900, "音声初期化").catch(() => {});
+      }
+      if (pendingStartAfterUnlock && audioContext && audioContext.state === "running" && !liveActive && !liveStarting) {
+        pendingStartAfterUnlock = false;
+        triggerLiveStart("resume");
       }
       warmupMicStream();
       primePreparedLiveSession().catch(() => {});
