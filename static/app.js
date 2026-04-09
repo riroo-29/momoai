@@ -74,6 +74,7 @@ const WAKE_WORD_PATTERNS = ["もも", "モモ", "momo", "MOMO", "桃"];
 const FAREWELL_RULES = [
   { patterns: ["ばいばい", "バイバイ", "bye"], reply: "バイバイ" },
   { patterns: ["おやすみ", "おやすみなさい"], reply: "おやすみ" },
+  { patterns: ["じゃあね", "じゃーね", "またね"], reply: "じゃあね" },
 ];
 
 function syncIosViewportHeight() {
