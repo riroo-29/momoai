@@ -110,14 +110,20 @@ function includesWakeWord(text) {
 function detectFarewellWord(text) {
   const normalized = normalizeSpeechText(text);
   if (!normalized) return "";
-  // 誤検知防止: 終了ワードは短い単発発話のみ対象にする
-  if (normalized.length > 10) return "";
+  // 誤検知防止: ある程度短い発話のみ対象
+  if (normalized.length > 24) return "";
   for (const rule of FAREWELL_RULES) {
-    if (rule.patterns.some((p) => normalized === normalizeSpeechText(p))) {
+    if (rule.patterns.some((p) => normalized.includes(normalizeSpeechText(p)))) {
       return rule.reply;
     }
   }
   return "";
+}
+
+function buildFarewellReply(word) {
+  if (word === "おやすみ") return "おやすみ、ゆっくり休んでね";
+  if (word === "じゃあね") return "じゃあね、また話そうね";
+  return "バイバイ、ゆっくり休んでね";
 }
 
 function clearFarewellTimer() {
@@ -156,8 +162,8 @@ function requestFarewellThenStop(word) {
   if (!word || farewellPending) return;
   farewellPending = true;
   farewellWord = word;
-  // API応答に依存せず、必ず同じワードを返してから停止する
-  speakWithBrowserTTS(word);
+  // API応答に依存せず、必ずお別れフレーズを返してから停止する
+  speakWithBrowserTTS(buildFarewellReply(word));
   clearFarewellTimer();
   setTimeout(() => {
     if (!liveActive) return;
@@ -858,18 +864,6 @@ function handleLiveMessage(message) {
   if (outputText) {
     // 文字起こしは表示せず、口パク動画切替のトリガーとしてのみ利用
     bumpSpeakFallback(1200);
-    if (farewellPending) {
-      const echoed = detectFarewellWord(outputText);
-      if (echoed && echoed === farewellWord) {
-        clearFarewellTimer();
-        setTimeout(() => {
-          if (!liveActive) return;
-          localStopReason = "farewell_echo";
-          stopLiveMode(true);
-          setVoiceStatus("また話しかけてね");
-        }, FAREWELL_STOP_AFTER_ECHO_MS);
-      }
-    }
   }
 
   let hasAudioChunk = false;
