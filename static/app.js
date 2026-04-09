@@ -157,7 +157,7 @@ function requestFarewellThenStop(word) {
     if (!liveActive) return;
     localStopReason = "farewell_timeout";
     stopLiveMode(true);
-    setVoiceStatus("会話モードを停止しました");
+    setVoiceStatus("また話しかけてね");
   }, 6500);
 }
 
@@ -867,7 +867,7 @@ function handleLiveMessage(message) {
           if (!liveActive) return;
           localStopReason = "farewell_echo";
           stopLiveMode(true);
-          setVoiceStatus("会話モードを停止しました");
+          setVoiceStatus("また話しかけてね");
         }, 850);
       }
     }
@@ -1326,7 +1326,7 @@ liveStartButton?.addEventListener("click", () => {
 liveStopButton?.addEventListener("click", () => {
   localStopReason = "manual_button";
   stopLiveMode(true);
-  setVoiceStatus("会話モードを停止しました");
+  setVoiceStatus("また話しかけてね");
 });
 fullscreenButton?.addEventListener("click", () => {
   toggleFullscreen();
