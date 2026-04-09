@@ -156,8 +156,15 @@ function requestFarewellThenStop(word) {
   if (!word || farewellPending) return;
   farewellPending = true;
   farewellWord = word;
-  sendOneShotInstruction(`会話を終了します。「${word}」の一言だけ返答してください。`);
+  // API応答に依存せず、必ず同じワードを返してから停止する
+  speakWithBrowserTTS(word);
   clearFarewellTimer();
+  setTimeout(() => {
+    if (!liveActive) return;
+    localStopReason = "farewell_local_echo";
+    stopLiveMode(true);
+    setVoiceStatus("また話しかけてね");
+  }, FAREWELL_STOP_AFTER_ECHO_MS);
   farewellHardStopTimer = setTimeout(() => {
     if (!liveActive) return;
     localStopReason = "farewell_timeout";
