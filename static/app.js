@@ -108,7 +108,7 @@ function detectFarewellWord(text) {
   const normalized = normalizeSpeechText(text);
   if (!normalized) return "";
   for (const rule of FAREWELL_RULES) {
-    if (rule.patterns.some((p) => normalized === normalizeSpeechText(p))) {
+    if (rule.patterns.some((p) => normalized.includes(normalizeSpeechText(p)))) {
       return rule.reply;
     }
   }
@@ -836,23 +836,10 @@ function handleLiveMessage(message) {
   const inputText = (sc.inputTranscription?.text || "").trim();
   const outputText = (sc.outputTranscription?.text || "").trim();
 
-  const canCheckFarewell = liveSessionStartedAt > 0 && Date.now() - liveSessionStartedAt > 4000;
-  if (inputText && !farewellPending && canCheckFarewell) {
+  if (inputText && !farewellPending) {
     const w = detectFarewellWord(inputText);
     if (w) {
-      const now = Date.now();
-      // 誤認識による即切断を防ぐため、同じ終了ワードを短時間で2回確認したときのみ停止処理へ
-      if (farewellCandidateWord === w && now - farewellCandidateAt <= 3000) {
-        farewellCandidateWord = "";
-        farewellCandidateAt = 0;
-        requestFarewellThenStop(w);
-      } else {
-        farewellCandidateWord = w;
-        farewellCandidateAt = now;
-      }
-    } else {
-      farewellCandidateWord = "";
-      farewellCandidateAt = 0;
+      requestFarewellThenStop(w);
     }
   }
 
