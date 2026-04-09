@@ -1217,8 +1217,8 @@ async function startLiveMode(options = {}) {
         localStopReason ||
         lastLiveErrorDetail ||
         (event?.reason ? event.reason : `code:${event?.code || "unknown"}${setupCompleted ? "" : ",setup_incomplete"}`);
-      const detail = baseDetail ? ` (${baseDetail})` : "";
-      setVoiceStatus(`会話モードが切断されました${detail}`);
+      if (baseDetail) console.debug("live onclose detail:", baseDetail);
+      setVoiceStatus("また話しかけてね");
     };
   } catch (e) {
     clearStartupWatchdog();
