@@ -162,15 +162,11 @@ function requestFarewellThenStop(word) {
   if (!word || farewellPending) return;
   farewellPending = true;
   farewellWord = word;
-  // API応答に依存せず、必ずお別れフレーズを返してから停止する
-  speakWithBrowserTTS(buildFarewellReply(word));
+  // 終了返答はキャラ音声（Live応答）で行う
+  sendOneShotInstruction(
+    `会話を終了します。次の一言だけ返答してください: 「${buildFarewellReply(word)}」`,
+  );
   clearFarewellTimer();
-  setTimeout(() => {
-    if (!liveActive) return;
-    localStopReason = "farewell_local_echo";
-    stopLiveMode(true);
-    setVoiceStatus("また話しかけてね");
-  }, FAREWELL_STOP_AFTER_ECHO_MS);
   farewellHardStopTimer = setTimeout(() => {
     if (!liveActive) return;
     localStopReason = "farewell_timeout";
@@ -864,6 +860,15 @@ function handleLiveMessage(message) {
   if (outputText) {
     // 文字起こしは表示せず、口パク動画切替のトリガーとしてのみ利用
     bumpSpeakFallback(1200);
+    if (farewellPending) {
+      clearFarewellTimer();
+      setTimeout(() => {
+        if (!liveActive) return;
+        localStopReason = "farewell_echo";
+        stopLiveMode(true);
+        setVoiceStatus("また話しかけてね");
+      }, FAREWELL_STOP_AFTER_ECHO_MS);
+    }
   }
 
   let hasAudioChunk = false;
