@@ -76,6 +76,8 @@ const FAREWELL_RULES = [
   { patterns: ["おやすみ", "おやすみなさい"], reply: "おやすみ" },
   { patterns: ["じゃあね", "じゃーね", "またね"], reply: "じゃあね" },
 ];
+const FAREWELL_STOP_AFTER_ECHO_MS = 3000;
+const FAREWELL_HARD_TIMEOUT_MS = 12000;
 
 function syncIosViewportHeight() {
   const isIosPage =
@@ -159,7 +161,7 @@ function requestFarewellThenStop(word) {
     localStopReason = "farewell_timeout";
     stopLiveMode(true);
     setVoiceStatus("また話しかけてね");
-  }, 6500);
+  }, FAREWELL_HARD_TIMEOUT_MS);
 }
 
 function getSpeechRecognitionCtor() {
@@ -856,7 +858,7 @@ function handleLiveMessage(message) {
           localStopReason = "farewell_echo";
           stopLiveMode(true);
           setVoiceStatus("また話しかけてね");
-        }, 850);
+        }, FAREWELL_STOP_AFTER_ECHO_MS);
       }
     }
   }
