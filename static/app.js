@@ -1030,7 +1030,12 @@ async function startLiveMode(options = {}) {
 
     audioContext = audioContext || new AudioContext();
     if (audioContext.state !== "running") {
-      await audioContext.resume().catch(() => {});
+      // 一部ブラウザでは resume() が解決されず無限待ちになるため、短い上限時間をつける
+      await withTimeout(
+        audioContext.resume().catch(() => {}),
+        900,
+        "音声初期化",
+      ).catch(() => {});
     }
     if (audioContext.state !== "running") {
       clearStartupWatchdog();
