@@ -228,6 +228,69 @@ function buildCharacterSystemPrompt() {
 }
 
 let growthMemory = loadGrowthMemory();
+let characterConfigCache = null;
+let characterConfigFetchPromise = null;
+let characterConfigLoadedAt = 0;
+
+function pickArray(items, limit = 3) {
+  if (!Array.isArray(items)) return [];
+  return items.filter((x) => typeof x === "string" && x.trim()).slice(0, limit);
+}
+
+function applyCharacterConfigToMemory(config) {
+  if (!config || typeof config !== "object") return;
+  const fallbackName = growthMemory?.character?.name || "もも";
+  const name = (config.character_name || fallbackName || "もも").toString();
+  const worldviewHints = pickArray(config?.view_of_human_society?.beliefs, 3);
+  const traitHints = pickArray(config?.personality?.core_traits, 4);
+  const growthHints = pickArray(config?.growth_arc?.learning_process, 2);
+  const worldviewText = [
+    "人間社会の常識を当然とは思わず、少し距離を置いて観察している。",
+    ...worldviewHints,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const responseText = [
+    "静かで落ち着いたテンポで話す。",
+    traitHints.length > 0 ? `雰囲気は ${traitHints.join("、")}。` : "",
+    growthHints.length > 0 ? `人と関わる中で ${growthHints.join("、")} を学んでいく。` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  growthMemory.character = {
+    ...(growthMemory.character || {}),
+    name,
+    worldview: worldviewText,
+    responseStyle: responseText,
+  };
+  saveGrowthMemory();
+  clearPreparedLiveSession(true);
+}
+
+async function loadCharacterConfig(forceRefresh = false) {
+  const ttlMs = 10 * 60 * 1000;
+  const now = Date.now();
+  if (!forceRefresh && characterConfigCache && now - characterConfigLoadedAt < ttlMs) return characterConfigCache;
+  if (!forceRefresh && characterConfigFetchPromise) return characterConfigFetchPromise;
+
+  characterConfigFetchPromise = (async () => {
+    const res = await fetch("/momoキャラ設定.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(`キャラ設定取得失敗(${res.status})`);
+    const data = await res.json();
+    characterConfigCache = data;
+    characterConfigLoadedAt = Date.now();
+    applyCharacterConfigToMemory(data);
+    return data;
+  })();
+
+  try {
+    return await characterConfigFetchPromise;
+  } finally {
+    characterConfigFetchPromise = null;
+  }
+}
+
 function applyCharacterPreset(memory) {
   if (!memory || typeof memory !== "object") return;
   memory.character = {
@@ -778,6 +841,7 @@ async function primePreparedLiveSession() {
   if (preparedLivePriming || liveActive || liveStarting || document.visibilityState !== "visible") return;
   preparedLivePriming = true;
   try {
+    await loadCharacterConfig().catch(() => {});
     const cfg = await getLiveConfig();
     if (!cfg.apiKey) return;
     const modelName = normalizeLiveModelName(cfg.liveModel);
@@ -1342,6 +1406,7 @@ async function startLiveMode(options = {}) {
   };
 
   try {
+    await withTimeout(loadCharacterConfig(), 1500, "キャラ設定読込").catch(() => {});
     const cfg = await withTimeout(getLiveConfig(), 2500, "設定取得");
     if (!cfg.apiKey) throw new Error("GEMINI_API_KEY が未設定です");
 
@@ -1681,6 +1746,7 @@ for (const v of [characterVideo, characterVideoBuffer]) {
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
+    loadCharacterConfig().catch(() => {});
     getLiveConfig().catch(() => {});
     primePreparedLiveSession().catch(() => {});
     scheduleWakeWordListener(250);
@@ -1738,6 +1804,7 @@ window.addEventListener("beforeunload", () => {
 });
 
 setVoiceStatus("準備完了。待機中は「もも」で会話モード開始できます。");
+loadCharacterConfig().catch(() => {});
 getLiveConfig().catch(() => {});
 primePreparedLiveSession().catch(() => {});
 startWakeWordListener();
