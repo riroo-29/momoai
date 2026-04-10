@@ -5,6 +5,8 @@ const characterRig = document.getElementById("characterRig");
 const liveStartButton = document.getElementById("liveStartButton");
 const liveStopButton = document.getElementById("liveStopButton");
 const liveVoiceSelect = document.getElementById("liveVoiceSelect");
+const saveVoicePresetButton = document.getElementById("saveVoicePresetButton");
+const restoreVoicePresetButton = document.getElementById("restoreVoicePresetButton");
 const voiceStatus = document.getElementById("voiceStatus");
 const fullscreenButton = document.getElementById("fullscreenButton");
 let pseudoFullscreen = false;
@@ -82,6 +84,7 @@ const MEMORY_STORAGE_KEY = "momo_growth_memory_v1";
 const MEMORY_MAX_FACTS = 120;
 const MEMORY_PROMPT_FACTS = 18;
 const NOW_CACHE_MS = 20000;
+const VOICE_PRESET_STORAGE_KEY = "momo_voice_presets_v1";
 const MEMORY_HINTS = [
   "名前",
   "呼び",
@@ -314,6 +317,67 @@ let nowInfoFetchPromise = null;
 let utilityInFlight = false;
 let lastUtilityAt = 0;
 let lastUtilityTextKey = "";
+let voicePresets = null;
+
+function loadVoicePresets() {
+  const fallbackVoice = liveVoiceSelect?.value || "Kore";
+  try {
+    const parsed = JSON.parse(localStorage.getItem(VOICE_PRESET_STORAGE_KEY) || "null");
+    if (!parsed || typeof parsed !== "object") {
+      return { baselineVoice: fallbackVoice, lastVoice: fallbackVoice };
+    }
+    return {
+      baselineVoice: parsed.baselineVoice || fallbackVoice,
+      lastVoice: parsed.lastVoice || parsed.baselineVoice || fallbackVoice,
+    };
+  } catch (_) {
+    return { baselineVoice: fallbackVoice, lastVoice: fallbackVoice };
+  }
+}
+
+function saveVoicePresets() {
+  if (!voicePresets) return;
+  try {
+    localStorage.setItem(VOICE_PRESET_STORAGE_KEY, JSON.stringify(voicePresets));
+  } catch (_) {
+    // noop
+  }
+}
+
+function applySavedVoiceSelection() {
+  if (!liveVoiceSelect) return;
+  voicePresets = loadVoicePresets();
+  const target = voicePresets.lastVoice || voicePresets.baselineVoice;
+  const exists = Array.from(liveVoiceSelect.options || []).some((o) => o.value === target);
+  liveVoiceSelect.value = exists ? target : (voicePresets.baselineVoice || "Kore");
+  if (!exists) {
+    voicePresets.lastVoice = liveVoiceSelect.value;
+    if (!voicePresets.baselineVoice) voicePresets.baselineVoice = liveVoiceSelect.value;
+    saveVoicePresets();
+  }
+}
+
+function saveCurrentVoiceAsBaseline() {
+  if (!liveVoiceSelect) return;
+  voicePresets = voicePresets || loadVoicePresets();
+  voicePresets.baselineVoice = liveVoiceSelect.value || "Kore";
+  voicePresets.lastVoice = liveVoiceSelect.value || "Kore";
+  saveVoicePresets();
+  clearPreparedLiveSession(true);
+  setVoiceStatus(`基準音声を「${voicePresets.baselineVoice}」で保存しました。`);
+}
+
+function restoreBaselineVoice() {
+  if (!liveVoiceSelect) return;
+  voicePresets = voicePresets || loadVoicePresets();
+  const target = voicePresets.baselineVoice || "Kore";
+  const exists = Array.from(liveVoiceSelect.options || []).some((o) => o.value === target);
+  liveVoiceSelect.value = exists ? target : "Kore";
+  voicePresets.lastVoice = liveVoiceSelect.value;
+  saveVoicePresets();
+  clearPreparedLiveSession(true);
+  setVoiceStatus(`基準音声「${liveVoiceSelect.value}」に戻しました。`);
+}
 
 function formatJstNow(date) {
   const parts = new Intl.DateTimeFormat("ja-JP", {
@@ -1711,6 +1775,22 @@ liveStopButton?.addEventListener("click", () => {
 fullscreenButton?.addEventListener("click", () => {
   toggleFullscreen();
 });
+liveVoiceSelect?.addEventListener("change", () => {
+  voicePresets = voicePresets || loadVoicePresets();
+  voicePresets.lastVoice = liveVoiceSelect.value || "Kore";
+  if (!voicePresets.baselineVoice) voicePresets.baselineVoice = voicePresets.lastVoice;
+  saveVoicePresets();
+  clearPreparedLiveSession(true);
+  if (!liveActive && !liveStarting) {
+    primePreparedLiveSession().catch(() => {});
+  }
+});
+saveVoicePresetButton?.addEventListener("click", () => {
+  saveCurrentVoiceAsBaseline();
+});
+restoreVoicePresetButton?.addEventListener("click", () => {
+  restoreBaselineVoice();
+});
 
 for (const ev of ["fullscreenchange", "webkitfullscreenchange"]) {
   document.addEventListener(ev, () => {
@@ -1804,6 +1884,7 @@ window.addEventListener("beforeunload", () => {
 });
 
 setVoiceStatus("準備完了。待機中は「もも」で会話モード開始できます。");
+applySavedVoiceSelection();
 loadCharacterConfig().catch(() => {});
 getLiveConfig().catch(() => {});
 primePreparedLiveSession().catch(() => {});
