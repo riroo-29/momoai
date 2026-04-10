@@ -85,7 +85,7 @@ const MEMORY_MAX_FACTS = 120;
 const MEMORY_PROMPT_FACTS = 18;
 const NOW_CACHE_MS = 20000;
 const VOICE_PRESET_STORAGE_KEY = "momo_voice_presets_v1";
-const FORCED_VOICE_NAME = "Zephyr";
+const FORCED_VOICE_NAME = "Puck";
 const MEMORY_HINTS = [
   "名前",
   "呼び",
