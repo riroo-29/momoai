@@ -78,6 +78,122 @@ const FAREWELL_RULES = [
 ];
 const FAREWELL_STOP_AFTER_ECHO_MS = 3000;
 const FAREWELL_HARD_TIMEOUT_MS = 12000;
+const MEMORY_STORAGE_KEY = "momo_growth_memory_v1";
+const MEMORY_MAX_FACTS = 120;
+const MEMORY_PROMPT_FACTS = 18;
+const MEMORY_HINTS = [
+  "名前",
+  "呼び",
+  "誕生日",
+  "兄弟",
+  "家族",
+  "好き",
+  "嫌い",
+  "趣味",
+  "目標",
+  "仕事",
+  "学校",
+  "住",
+  "予定",
+  "約束",
+  "体調",
+  "推し",
+  "記念日",
+];
+
+function buildDefaultMemory() {
+  return {
+    version: 1,
+    character: {
+      name: "もも",
+      relation: "兄弟",
+      firstPerson: "ぼく、拙者",
+      userCall: "リロー",
+      endingStyle: "語尾はたまに「ござる」。基本は自然な普通口調。",
+    },
+    facts: [],
+  };
+}
+
+function loadGrowthMemory() {
+  const fallback = buildDefaultMemory();
+  try {
+    const raw = localStorage.getItem(MEMORY_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return fallback;
+    const merged = {
+      version: 1,
+      character: {
+        ...fallback.character,
+        ...(parsed.character || {}),
+      },
+      facts: Array.isArray(parsed.facts) ? parsed.facts : [],
+    };
+    return merged;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function saveGrowthMemory() {
+  try {
+    localStorage.setItem(MEMORY_STORAGE_KEY, JSON.stringify(growthMemory));
+  } catch (_) {
+    // noop
+  }
+}
+
+function normalizeMemoryText(text) {
+  return normalizeSpeechText(text || "");
+}
+
+function shouldRememberUtterance(text) {
+  const t = (text || "").trim();
+  if (!t) return false;
+  if (t.length < 3 || t.length > 90) return false;
+  if (includesWakeWord(t)) return false;
+  if (detectFarewellWord(t)) return false;
+  return MEMORY_HINTS.some((h) => t.includes(h));
+}
+
+function rememberUserFact(text) {
+  const content = (text || "").trim();
+  if (!shouldRememberUtterance(content)) return;
+  const key = normalizeMemoryText(content);
+  const exists = growthMemory.facts.some((f) => normalizeMemoryText(f.text || "") === key);
+  if (exists) return;
+  growthMemory.facts.push({
+    text: content,
+    at: Date.now(),
+  });
+  if (growthMemory.facts.length > MEMORY_MAX_FACTS) {
+    growthMemory.facts = growthMemory.facts.slice(-MEMORY_MAX_FACTS);
+  }
+  saveGrowthMemory();
+  // 次セッション開始時に必ず最新メモリを反映
+  clearPreparedLiveSession(true);
+}
+
+function buildCharacterSystemPrompt() {
+  const c = growthMemory.character || buildDefaultMemory().character;
+  const recentFacts = (growthMemory.facts || []).slice(-MEMORY_PROMPT_FACTS).map((f) => f.text).filter(Boolean);
+  const factsBlock = recentFacts.length > 0 ? `\n覚えている大事な情報:\n- ${recentFacts.join("\n- ")}` : "";
+  return [
+    `あなたはオリジナル2Dキャラクター「${c.name}」です。`,
+    `ユーザーとの関係は${c.relation}です。`,
+    `一人称は「${c.firstPerson}」。`,
+    `ユーザーの呼び方は必ず「${c.userCall}」。`,
+    `${c.endingStyle}`,
+    "親しみやすく自然に話し、長文を避けて短めに返答してください。",
+    "覚えている情報は会話の中で自然に活用してください。",
+    factsBlock,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+let growthMemory = loadGrowthMemory();
 
 function syncIosViewportHeight() {
   const isIosPage =
@@ -427,7 +543,7 @@ function buildLiveSetupMessage(modelName, voiceName) {
       systemInstruction: {
         parts: [
           {
-            text: "あなたはオリジナル2Dキャラクター『焔丸(ほむらまる)』です。明るく勇気づける少年剣士口調で、相手を主(あるじ)と呼び、短く自然に話してください。",
+            text: buildCharacterSystemPrompt(),
           },
         ],
       },
@@ -851,6 +967,7 @@ function handleLiveMessage(message) {
   const outputText = (sc.outputTranscription?.text || "").trim();
 
   if (inputText && !farewellPending) {
+    rememberUserFact(inputText);
     const w = detectFarewellWord(inputText);
     if (w) {
       requestFarewellThenStop(w);
