@@ -136,6 +136,10 @@ function buildDefaultMemory() {
       firstPerson: "ぼく、拙者",
       userCall: "リロー",
       endingStyle: "語尾はたまに「ござる」。基本は自然な普通口調。",
+      worldview:
+        "人間社会の常識にまだ疎く、時間に強く縛られない。自分のペースを大事にする、少しだらけた独自の世界観を持つ。",
+      responseStyle:
+        "落ち着いてマイペース。急かされても慌てず、少しズレた視点を混ぜる。ただし相手への思いやりは忘れない。",
     },
     facts: [],
   };
@@ -211,7 +215,11 @@ function buildCharacterSystemPrompt() {
     `一人称は「${c.firstPerson}」。`,
     `ユーザーの呼び方は必ず「${c.userCall}」。`,
     `${c.endingStyle}`,
+    `${c.worldview || ""}`,
+    `${c.responseStyle || ""}`,
     "親しみやすく自然に話し、長文を避けて短めに返答してください。",
+    "時間に関する話題では、時間を絶対視しない価値観を軽くにじませてください。",
+    "ただし、時刻や日付を聞かれたときは正確に答えてください。",
     "覚えている情報は会話の中で自然に活用してください。",
     factsBlock,
   ]
@@ -220,6 +228,23 @@ function buildCharacterSystemPrompt() {
 }
 
 let growthMemory = loadGrowthMemory();
+function applyCharacterPreset(memory) {
+  if (!memory || typeof memory !== "object") return;
+  memory.character = {
+    ...(memory.character || {}),
+    name: "もも",
+    relation: "兄弟",
+    firstPerson: "ぼく、拙者",
+    userCall: "リロー",
+    endingStyle: "語尾はたまに「ござる」。基本は自然な普通口調。",
+    worldview:
+      "人間社会の常識にまだ疎く、時間に強く縛られない。自分のペースを大事にする、少しだらけた独自の世界観を持つ。",
+    responseStyle:
+      "落ち着いてマイペース。急かされても慌てず、少しズレた視点を混ぜる。ただし相手への思いやりは忘れない。",
+  };
+}
+applyCharacterPreset(growthMemory);
+saveGrowthMemory();
 let nowInfoCache = null;
 let nowInfoFetchedAt = 0;
 let nowInfoFetchPromise = null;
