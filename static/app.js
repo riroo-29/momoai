@@ -85,6 +85,7 @@ const MEMORY_MAX_FACTS = 120;
 const MEMORY_PROMPT_FACTS = 18;
 const NOW_CACHE_MS = 20000;
 const VOICE_PRESET_STORAGE_KEY = "momo_voice_presets_v1";
+const FORCED_VOICE_NAME = "Puck";
 const MEMORY_HINTS = [
   "名前",
   "呼び",
@@ -327,8 +328,13 @@ let lastUtilityAt = 0;
 let lastUtilityTextKey = "";
 let voicePresets = null;
 
+function getSelectedVoiceName() {
+  // 声質を固定して、毎回同じトーンに戻せるようにする
+  return FORCED_VOICE_NAME;
+}
+
 function loadVoicePresets() {
-  const fallbackVoice = liveVoiceSelect?.value || "Kore";
+  const fallbackVoice = getSelectedVoiceName();
   try {
     const parsed = JSON.parse(localStorage.getItem(VOICE_PRESET_STORAGE_KEY) || "null");
     if (!parsed || typeof parsed !== "object") {
@@ -355,21 +361,20 @@ function saveVoicePresets() {
 function applySavedVoiceSelection() {
   if (!liveVoiceSelect) return;
   voicePresets = loadVoicePresets();
-  const target = voicePresets.lastVoice || voicePresets.baselineVoice;
+  const target = getSelectedVoiceName();
   const exists = Array.from(liveVoiceSelect.options || []).some((o) => o.value === target);
-  liveVoiceSelect.value = exists ? target : (voicePresets.baselineVoice || "Kore");
-  if (!exists) {
-    voicePresets.lastVoice = liveVoiceSelect.value;
-    if (!voicePresets.baselineVoice) voicePresets.baselineVoice = liveVoiceSelect.value;
-    saveVoicePresets();
-  }
+  liveVoiceSelect.value = exists ? target : target;
+  liveVoiceSelect.disabled = true;
+  voicePresets.baselineVoice = liveVoiceSelect.value;
+  voicePresets.lastVoice = liveVoiceSelect.value;
+  saveVoicePresets();
 }
 
 function saveCurrentVoiceAsBaseline() {
   if (!liveVoiceSelect) return;
   voicePresets = voicePresets || loadVoicePresets();
-  voicePresets.baselineVoice = liveVoiceSelect.value || "Kore";
-  voicePresets.lastVoice = liveVoiceSelect.value || "Kore";
+  voicePresets.baselineVoice = getSelectedVoiceName();
+  voicePresets.lastVoice = getSelectedVoiceName();
   saveVoicePresets();
   clearPreparedLiveSession(true);
   setVoiceStatus(`基準音声を「${voicePresets.baselineVoice}」で保存しました。`);
@@ -378,9 +383,9 @@ function saveCurrentVoiceAsBaseline() {
 function restoreBaselineVoice() {
   if (!liveVoiceSelect) return;
   voicePresets = voicePresets || loadVoicePresets();
-  const target = voicePresets.baselineVoice || "Kore";
+  const target = getSelectedVoiceName();
   const exists = Array.from(liveVoiceSelect.options || []).some((o) => o.value === target);
-  liveVoiceSelect.value = exists ? target : "Kore";
+  liveVoiceSelect.value = exists ? target : target;
   voicePresets.lastVoice = liveVoiceSelect.value;
   saveVoicePresets();
   clearPreparedLiveSession(true);
@@ -866,7 +871,7 @@ function buildLiveSetupMessage(modelName, voiceName) {
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: {
-              voiceName: voiceName || "Kore",
+              voiceName: voiceName || getSelectedVoiceName(),
             },
           },
         },
@@ -917,7 +922,7 @@ async function primePreparedLiveSession() {
     const cfg = await getLiveConfig();
     if (!cfg.apiKey) return;
     const modelName = normalizeLiveModelName(cfg.liveModel);
-    const voiceName = liveVoiceSelect?.value || "Kore";
+    const voiceName = getSelectedVoiceName();
 
     if (
       preparedLiveSocket &&
@@ -1507,7 +1512,7 @@ async function startLiveMode(options = {}) {
     nextPlayAt = 0;
 
     const modelName = normalizeLiveModelName(cfg.liveModel);
-    const voiceName = liveVoiceSelect?.value || "Kore";
+    const voiceName = getSelectedVoiceName();
     const canAdoptPrepared =
       preparedLiveSocket &&
       preparedLiveReady &&
@@ -1785,7 +1790,7 @@ fullscreenButton?.addEventListener("click", () => {
 });
 liveVoiceSelect?.addEventListener("change", () => {
   voicePresets = voicePresets || loadVoicePresets();
-  voicePresets.lastVoice = liveVoiceSelect.value || "Kore";
+  voicePresets.lastVoice = getSelectedVoiceName();
   if (!voicePresets.baselineVoice) voicePresets.baselineVoice = voicePresets.lastVoice;
   saveVoicePresets();
   clearPreparedLiveSession(true);
