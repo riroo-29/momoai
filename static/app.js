@@ -81,6 +81,7 @@ const FAREWELL_HARD_TIMEOUT_MS = 12000;
 const MEMORY_STORAGE_KEY = "momo_growth_memory_v1";
 const MEMORY_MAX_FACTS = 120;
 const MEMORY_PROMPT_FACTS = 18;
+const NOW_CACHE_MS = 20000;
 const MEMORY_HINTS = [
   "名前",
   "呼び",
@@ -99,6 +100,17 @@ const MEMORY_HINTS = [
   "体調",
   "推し",
   "記念日",
+];
+const NOW_QUERY_PATTERNS = [
+  "いまなんじ",
+  "なんじ",
+  "時刻",
+  "何時",
+  "今日何日",
+  "きょうなんにち",
+  "日付",
+  "曜日",
+  "何曜日",
 ];
 
 function buildDefaultMemory() {
@@ -194,6 +206,79 @@ function buildCharacterSystemPrompt() {
 }
 
 let growthMemory = loadGrowthMemory();
+let nowInfoCache = null;
+let nowInfoFetchedAt = 0;
+let nowInfoFetchPromise = null;
+let lastNowAssistAt = 0;
+let lastNowAssistTextKey = "";
+
+function formatJstNow(date) {
+  const parts = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const pick = (type) => parts.find((p) => p.type === type)?.value || "";
+  return `${pick("year")}/${pick("month")}/${pick("day")}(${pick("weekday")}) ${pick("hour")}:${pick("minute")}:${pick("second")}`;
+}
+
+function getLocalNowInfo() {
+  const now = new Date();
+  return {
+    nowIso: now.toISOString(),
+    timezone: "Asia/Tokyo",
+    nowJst: formatJstNow(now),
+  };
+}
+
+async function fetchNowInfo(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && nowInfoCache && now - nowInfoFetchedAt < NOW_CACHE_MS) return nowInfoCache;
+  if (!forceRefresh && nowInfoFetchPromise) return nowInfoFetchPromise;
+
+  nowInfoFetchPromise = (async () => {
+    try {
+      const res = await fetch("/api/now", { cache: "no-store" });
+      if (!res.ok) throw new Error("failed");
+      const data = await res.json();
+      if (!data?.nowJst) throw new Error("invalid");
+      nowInfoCache = data;
+      nowInfoFetchedAt = Date.now();
+      return data;
+    } catch (_) {
+      const fallback = getLocalNowInfo();
+      nowInfoCache = fallback;
+      nowInfoFetchedAt = Date.now();
+      return fallback;
+    }
+  })();
+
+  try {
+    return await nowInfoFetchPromise;
+  } finally {
+    nowInfoFetchPromise = null;
+  }
+}
+
+function isNowQuestion(text) {
+  const normalized = normalizeSpeechText(text);
+  if (!normalized) return false;
+  return NOW_QUERY_PATTERNS.some((p) => normalized.includes(normalizeSpeechText(p)));
+}
+
+function buildNowAssistInstruction(nowInfo) {
+  return [
+    "ユーザーが現在時刻/日付を質問しました。",
+    `正確な現在情報: ${nowInfo.nowJst}（${nowInfo.timezone}）`,
+    "上記の時刻だけを根拠に、短く自然に返答してください。",
+  ].join("\n");
+}
 
 function syncIosViewportHeight() {
   const isIosPage =
@@ -527,6 +612,7 @@ function normalizeLiveModelName(name) {
 }
 
 function buildLiveSetupMessage(modelName, voiceName) {
+  const nowInfo = getLocalNowInfo();
   return {
     setup: {
       model: modelName,
@@ -544,6 +630,9 @@ function buildLiveSetupMessage(modelName, voiceName) {
         parts: [
           {
             text: buildCharacterSystemPrompt(),
+          },
+          {
+            text: `現在時刻の基準: ${nowInfo.nowJst}（${nowInfo.timezone}）。時刻質問にはこの情報を基準に答えてください。`,
           },
         ],
       },
@@ -971,6 +1060,20 @@ function handleLiveMessage(message) {
     const w = detectFarewellWord(inputText);
     if (w) {
       requestFarewellThenStop(w);
+    }
+    if (isNowQuestion(inputText)) {
+      const key = normalizeSpeechText(inputText);
+      const now = Date.now();
+      if (!(key === lastNowAssistTextKey && now - lastNowAssistAt < 3500)) {
+        lastNowAssistTextKey = key;
+        lastNowAssistAt = now;
+        fetchNowInfo(true)
+          .then((nowInfo) => {
+            if (!liveActive) return;
+            sendOneShotInstruction(buildNowAssistInstruction(nowInfo));
+          })
+          .catch(() => {});
+      }
     }
   }
 

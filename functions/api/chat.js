@@ -15,6 +15,20 @@ const SYSTEM_PROMPT = `
 - 最初に共感、次に提案、最後に小さな一言で背中を押す
 `.trim();
 
+function formatJstNow(date) {
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -57,9 +71,10 @@ export async function onRequestPost(context) {
   const history = Array.isArray(body?.history) ? body.history : [];
   if (!message) return json({ error: "message が空です" }, 400);
 
+  const nowPrompt = `現在時刻の基準は ${formatJstNow(new Date())} (Asia/Tokyo)。時刻・日付質問にはこの基準で正確に答えてください。`;
   const payload = {
     contents: [{ role: "user", parts: [{ text: buildUserText(message, history) }] }],
-    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }, { text: nowPrompt }] },
     generationConfig: { temperature: 0.8 },
   };
 
@@ -94,4 +109,3 @@ export async function onRequestPost(context) {
 
   return json({ reply, model });
 }
-
