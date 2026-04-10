@@ -85,7 +85,7 @@ const MEMORY_MAX_FACTS = 120;
 const MEMORY_PROMPT_FACTS = 18;
 const NOW_CACHE_MS = 20000;
 const VOICE_PRESET_STORAGE_KEY = "momo_voice_presets_v1";
-const FORCED_VOICE_NAME = "Kore";
+const FORCED_VOICE_NAME = "Puck";
 const MEMORY_HINTS = [
   "名前",
   "呼び",
@@ -145,7 +145,7 @@ function buildDefaultMemory() {
       responseStyle:
         "落ち着いてマイペース。急かされても慌てず、少しズレた視点を混ぜる。ただし相手への思いやりは忘れない。",
       voiceStyle:
-        "子どもっぽさは抑え、若い青年らしい落ち着きと芯を持つ声。高すぎる響きや軽すぎる明るさは控えめにし、柔らかさ・優しさ・温かさを残す。誠実で穏やか、丁寧で包み込むように安心感のある話し方。",
+        "落ち着いた若い青年の声で話す。優しく、誠実で、静かに寄り添うような話し方。低く渋くしすぎず、幼くもならないようにする。声はやわらかく、穏やかで、少しだけ爽やかさを含む。威圧感は出さず、安心感を優先する。語尾は丁寧に、やさしく置く。感情表現は大げさにせず、静かな情熱をにじませる。",
     },
     facts: [],
   };
@@ -272,7 +272,7 @@ function applyCharacterConfigToMemory(config) {
     responseStyle: responseText,
     voiceStyle:
       (config.voice_style || "").toString().trim() ||
-      "子どもっぽさは抑え、若い青年らしい落ち着きと芯を持つ声。高すぎる響きや軽すぎる明るさは控えめにし、柔らかさ・優しさ・温かさを残す。誠実で穏やか、丁寧で包み込むように安心感のある話し方。",
+      "落ち着いた若い青年の声で話す。優しく、誠実で、静かに寄り添うような話し方。低く渋くしすぎず、幼くもならないようにする。声はやわらかく、穏やかで、少しだけ爽やかさを含む。威圧感は出さず、安心感を優先する。語尾は丁寧に、やさしく置く。感情表現は大げさにせず、静かな情熱をにじませる。",
   };
   saveGrowthMemory();
   clearPreparedLiveSession(true);
@@ -315,7 +315,7 @@ function applyCharacterPreset(memory) {
     responseStyle:
       "落ち着いてマイペース。急かされても慌てず、少しズレた視点を混ぜる。ただし相手への思いやりは忘れない。",
     voiceStyle:
-      "子どもっぽさは抑え、若い青年らしい落ち着きと芯を持つ声。高すぎる響きや軽すぎる明るさは控えめにし、柔らかさ・優しさ・温かさを残す。誠実で穏やか、丁寧で包み込むように安心感のある話し方。",
+      "落ち着いた若い青年の声で話す。優しく、誠実で、静かに寄り添うような話し方。低く渋くしすぎず、幼くもならないようにする。声はやわらかく、穏やかで、少しだけ爽やかさを含む。威圧感は出さず、安心感を優先する。語尾は丁寧に、やさしく置く。感情表現は大げさにせず、静かな情熱をにじませる。",
   };
 }
 applyCharacterPreset(growthMemory);
