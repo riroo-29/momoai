@@ -143,6 +143,8 @@ function buildDefaultMemory() {
         "人間社会の常識にまだ疎く、時間に強く縛られない。自分のペースを大事にする、少しだらけた独自の世界観を持つ。",
       responseStyle:
         "落ち着いてマイペース。急かされても慌てず、少しズレた視点を混ぜる。ただし相手への思いやりは忘れない。",
+      voiceStyle:
+        "若く爽やかな青年の声。中高音寄りで澄んだやわらかい声質。息を少し含んだ自然な発声。誠実さ・優しさ・品の良さを感じる、落ち着いた丁寧な話し方。明るいが軽薄ではなく、自信はあるが威圧感はない。感情は大げさにせず静かな情熱とまっすぐさをにじませる。",
     },
     facts: [],
   };
@@ -220,6 +222,7 @@ function buildCharacterSystemPrompt() {
     `${c.endingStyle}`,
     `${c.worldview || ""}`,
     `${c.responseStyle || ""}`,
+    `声と話し方の演技方針: ${c.voiceStyle || ""}`,
     "親しみやすく自然に話し、長文を避けて短めに返答してください。",
     "時間に関する話題では、時間を絶対視しない価値観を軽くにじませてください。",
     "ただし、時刻や日付を聞かれたときは正確に答えてください。",
@@ -266,6 +269,9 @@ function applyCharacterConfigToMemory(config) {
     name,
     worldview: worldviewText,
     responseStyle: responseText,
+    voiceStyle:
+      (config.voice_style || "").toString().trim() ||
+      "若く爽やかな青年の声。中高音寄りで澄んだやわらかい声質。息を少し含んだ自然な発声。誠実さ・優しさ・品の良さを感じる、落ち着いた丁寧な話し方。明るいが軽薄ではなく、自信はあるが威圧感はない。感情は大げさにせず静かな情熱とまっすぐさをにじませる。",
   };
   saveGrowthMemory();
   clearPreparedLiveSession(true);
@@ -307,6 +313,8 @@ function applyCharacterPreset(memory) {
       "人間社会の常識にまだ疎く、時間に強く縛られない。自分のペースを大事にする、少しだらけた独自の世界観を持つ。",
     responseStyle:
       "落ち着いてマイペース。急かされても慌てず、少しズレた視点を混ぜる。ただし相手への思いやりは忘れない。",
+    voiceStyle:
+      "若く爽やかな青年の声。中高音寄りで澄んだやわらかい声質。息を少し含んだ自然な発声。誠実さ・優しさ・品の良さを感じる、落ち着いた丁寧な話し方。明るいが軽薄ではなく、自信はあるが威圧感はない。感情は大げさにせず静かな情熱とまっすぐさをにじませる。",
   };
 }
 applyCharacterPreset(growthMemory);
