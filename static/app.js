@@ -112,6 +112,20 @@ const NOW_QUERY_PATTERNS = [
   "曜日",
   "何曜日",
 ];
+const SEARCH_QUERY_PATTERNS = [
+  "検索",
+  "調べて",
+  "しらべて",
+  "ググ",
+  "google",
+  "最新",
+  "ニュース",
+  "とは",
+  "誰",
+  "だれ",
+  "どこ",
+  "いつ",
+];
 
 function buildDefaultMemory() {
   return {
@@ -209,8 +223,9 @@ let growthMemory = loadGrowthMemory();
 let nowInfoCache = null;
 let nowInfoFetchedAt = 0;
 let nowInfoFetchPromise = null;
-let lastNowAssistAt = 0;
-let lastNowAssistTextKey = "";
+let utilityInFlight = false;
+let lastUtilityAt = 0;
+let lastUtilityTextKey = "";
 
 function formatJstNow(date) {
   const parts = new Intl.DateTimeFormat("ja-JP", {
@@ -278,6 +293,76 @@ function buildNowAssistInstruction(nowInfo) {
     `正確な現在情報: ${nowInfo.nowJst}（${nowInfo.timezone}）`,
     "上記の時刻だけを根拠に、短く自然に返答してください。",
   ].join("\n");
+}
+
+function isSearchQuestion(text) {
+  const normalized = normalizeSpeechText(text);
+  if (!normalized) return false;
+  return SEARCH_QUERY_PATTERNS.some((p) => normalized.includes(normalizeSpeechText(p)));
+}
+
+function extractSearchQuery(text) {
+  return (text || "")
+    .replace(/(検索して|検索|調べて|しらべて|ググって|ググると|教えて|最新の|最新)/g, "")
+    .replace(/^(ねえ|もも|えっと|あの)\s*/g, "")
+    .trim();
+}
+
+async function fetchGoogleSearchInfo(query) {
+  const url = `/api/search?q=${encodeURIComponent(query)}`;
+  const res = await fetch(url, { cache: "no-store" });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error || "検索に失敗しました");
+  return data;
+}
+
+function buildSearchAssistInstruction(userQuestion, searchResult) {
+  const sources = (searchResult.sources || [])
+    .slice(0, 3)
+    .map((s) => `${s.title} ${s.url}`)
+    .join(" / ");
+  return [
+    "ユーザーが検索を要求しました。以下の最新情報を優先して返答してください。",
+    `質問: ${userQuestion}`,
+    `検索要約: ${searchResult.summary || "情報を取得できませんでした。"}`,
+    `参照: ${sources || "なし"}`,
+    "返答は短く自然に、2文以内で答えてください。",
+  ].join("\n");
+}
+
+async function maybeHandleUtilityIntent(inputText) {
+  if (!liveActive || farewellPending || utilityInFlight) return;
+  const text = (inputText || "").trim();
+  if (!text) return;
+
+  const nowMs = Date.now();
+  const key = normalizeSpeechText(text);
+  if (key && key === lastUtilityTextKey && nowMs - lastUtilityAt < 4000) return;
+  lastUtilityTextKey = key;
+  lastUtilityAt = nowMs;
+
+  const wantsNow = isNowQuestion(text);
+  const wantsSearch = isSearchQuestion(text) && !wantsNow;
+  if (!wantsNow && !wantsSearch) return;
+
+  utilityInFlight = true;
+  try {
+    if (wantsNow) {
+      const nowInfo = await fetchNowInfo(true);
+      if (!liveActive) return;
+      sendOneShotInstruction(buildNowAssistInstruction(nowInfo));
+      return;
+    }
+
+    const query = extractSearchQuery(text) || text;
+    const result = await fetchGoogleSearchInfo(query);
+    if (!liveActive) return;
+    sendOneShotInstruction(buildSearchAssistInstruction(text, result));
+  } catch (e) {
+    setVoiceStatus(`検索補助エラー: ${e?.message || e}`);
+  } finally {
+    utilityInFlight = false;
+  }
 }
 
 function syncIosViewportHeight() {
@@ -1061,20 +1146,7 @@ function handleLiveMessage(message) {
     if (w) {
       requestFarewellThenStop(w);
     }
-    if (isNowQuestion(inputText)) {
-      const key = normalizeSpeechText(inputText);
-      const now = Date.now();
-      if (!(key === lastNowAssistTextKey && now - lastNowAssistAt < 3500)) {
-        lastNowAssistTextKey = key;
-        lastNowAssistAt = now;
-        fetchNowInfo(true)
-          .then((nowInfo) => {
-            if (!liveActive) return;
-            sendOneShotInstruction(buildNowAssistInstruction(nowInfo));
-          })
-          .catch(() => {});
-      }
-    }
+    maybeHandleUtilityIntent(inputText).catch(() => {});
   }
 
   if (outputText) {
