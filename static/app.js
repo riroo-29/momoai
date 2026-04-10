@@ -85,7 +85,7 @@ const MEMORY_MAX_FACTS = 120;
 const MEMORY_PROMPT_FACTS = 18;
 const NOW_CACHE_MS = 20000;
 const VOICE_PRESET_STORAGE_KEY = "momo_voice_presets_v1";
-const FORCED_VOICE_NAME = "Puck";
+const FORCED_VOICE_NAME = "Zephyr";
 const MEMORY_HINTS = [
   "名前",
   "呼び",
@@ -145,7 +145,7 @@ function buildDefaultMemory() {
       responseStyle:
         "落ち着いてマイペース。急かされても慌てず、少しズレた視点を混ぜる。ただし相手への思いやりは忘れない。",
       voiceStyle:
-        "若く爽やかな青年の声。中高音寄りで澄んだやわらかい声質。息を少し含んだ自然な発声。誠実さ・優しさ・品の良さを感じる、落ち着いた丁寧な話し方。明るいが軽薄ではなく、自信はあるが威圧感はない。感情は大げさにせず静かな情熱とまっすぐさをにじませる。",
+        "低音と重厚感は控えめにし、年齢感は少し若め。中高音寄りで澄んだやわらかい声質。息を少し含んだ自然な発声で、落ち着きは保ちつつ威厳より優しさ・誠実さ・親しみやすさを前に出す。包み込むように安心できる、静かで穏やかな青年の話し方。",
     },
     facts: [],
   };
@@ -272,7 +272,7 @@ function applyCharacterConfigToMemory(config) {
     responseStyle: responseText,
     voiceStyle:
       (config.voice_style || "").toString().trim() ||
-      "若く爽やかな青年の声。中高音寄りで澄んだやわらかい声質。息を少し含んだ自然な発声。誠実さ・優しさ・品の良さを感じる、落ち着いた丁寧な話し方。明るいが軽薄ではなく、自信はあるが威圧感はない。感情は大げさにせず静かな情熱とまっすぐさをにじませる。",
+      "低音と重厚感は控えめにし、年齢感は少し若め。中高音寄りで澄んだやわらかい声質。息を少し含んだ自然な発声で、落ち着きは保ちつつ威厳より優しさ・誠実さ・親しみやすさを前に出す。包み込むように安心できる、静かで穏やかな青年の話し方。",
   };
   saveGrowthMemory();
   clearPreparedLiveSession(true);
@@ -315,7 +315,7 @@ function applyCharacterPreset(memory) {
     responseStyle:
       "落ち着いてマイペース。急かされても慌てず、少しズレた視点を混ぜる。ただし相手への思いやりは忘れない。",
     voiceStyle:
-      "若く爽やかな青年の声。中高音寄りで澄んだやわらかい声質。息を少し含んだ自然な発声。誠実さ・優しさ・品の良さを感じる、落ち着いた丁寧な話し方。明るいが軽薄ではなく、自信はあるが威圧感はない。感情は大げさにせず静かな情熱とまっすぐさをにじませる。",
+      "低音と重厚感は控えめにし、年齢感は少し若め。中高音寄りで澄んだやわらかい声質。息を少し含んだ自然な発声で、落ち着きは保ちつつ威厳より優しさ・誠実さ・親しみやすさを前に出す。包み込むように安心できる、静かで穏やかな青年の話し方。",
   };
 }
 applyCharacterPreset(growthMemory);
