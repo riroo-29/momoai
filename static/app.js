@@ -81,8 +81,11 @@ const FAREWELL_RULES = [
 const FAREWELL_STOP_AFTER_ECHO_MS = 3000;
 const FAREWELL_HARD_TIMEOUT_MS = 12000;
 const MEMORY_STORAGE_KEY = "momo_growth_memory_v1";
+const CONVERSATION_STORAGE_KEY = "momo_conversation_memory_v1";
 const MEMORY_MAX_FACTS = 120;
 const MEMORY_PROMPT_FACTS = 18;
+const MEMORY_MAX_TURNS = 180;
+const MEMORY_PROMPT_TURNS = 24;
 const NOW_CACHE_MS = 20000;
 const VOICE_PRESET_STORAGE_KEY = "momo_voice_presets_v1";
 const FORCED_VOICE_NAME = "Puck";
@@ -148,6 +151,7 @@ function buildDefaultMemory() {
         "落ち着いた優しい青年の声で話す。はしゃいだ明るさは抑え、静かで穏やかに寄り添うトーン。テンポは少しゆっくり、抑揚は控えめ。低く渋い響きも高すぎる軽さも避け、やわらかく暖かい声質を優先する。威圧感は出さず、安心できる誠実な話し方にする。語尾は丁寧に、そっと置く。",
     },
     facts: [],
+    turns: [],
   };
 }
 
@@ -165,7 +169,20 @@ function loadGrowthMemory() {
         ...(parsed.character || {}),
       },
       facts: Array.isArray(parsed.facts) ? parsed.facts : [],
+      turns: Array.isArray(parsed.turns) ? parsed.turns : [],
     };
+    // 旧バージョンからの会話履歴引き継ぎ
+    if (merged.turns.length === 0) {
+      try {
+        const oldRaw = localStorage.getItem(CONVERSATION_STORAGE_KEY);
+        if (oldRaw) {
+          const oldTurns = JSON.parse(oldRaw);
+          if (Array.isArray(oldTurns)) merged.turns = oldTurns;
+        }
+      } catch (_) {
+        // noop
+      }
+    }
     return merged;
   } catch (_) {
     return fallback;
@@ -211,10 +228,53 @@ function rememberUserFact(text) {
   clearPreparedLiveSession(true);
 }
 
+function appendConversationTurn(role, text) {
+  const content = (text || "").trim();
+  if (!content) return;
+  if (content.length < 2) return;
+  const now = Date.now();
+  const turns = Array.isArray(growthMemory.turns) ? growthMemory.turns : [];
+  const normalized = normalizeMemoryText(content);
+  const last = turns.length > 0 ? turns[turns.length - 1] : null;
+  if (last && last.role === role) {
+    const lastText = String(last.text || "");
+    const lastNorm = normalizeMemoryText(lastText);
+    const nearMs = now - Number(last.at || 0);
+    // 文字起こしの増分更新を1ターンに統合
+    if (nearMs < 8000 && (normalized.startsWith(lastNorm) || lastNorm.startsWith(normalized))) {
+      if (content.length >= lastText.length) {
+        last.text = content;
+        last.at = now;
+        saveGrowthMemory();
+      }
+      return;
+    }
+    if (nearMs < 3500 && normalized === lastNorm) return;
+  }
+
+  turns.push({ role, text: content, at: now });
+  if (turns.length > MEMORY_MAX_TURNS) {
+    growthMemory.turns = turns.slice(-MEMORY_MAX_TURNS);
+  } else {
+    growthMemory.turns = turns;
+  }
+  saveGrowthMemory();
+  clearPreparedLiveSession(true);
+}
+
 function buildCharacterSystemPrompt() {
   const c = growthMemory.character || buildDefaultMemory().character;
   const recentFacts = (growthMemory.facts || []).slice(-MEMORY_PROMPT_FACTS).map((f) => f.text).filter(Boolean);
   const factsBlock = recentFacts.length > 0 ? `\n覚えている大事な情報:\n- ${recentFacts.join("\n- ")}` : "";
+  const recentTurns = (growthMemory.turns || [])
+    .slice(-MEMORY_PROMPT_TURNS)
+    .map((t) => {
+      const who = t.role === "assistant" ? "もも" : "ユーザー";
+      const text = String(t.text || "").replace(/\s+/g, " ").trim().slice(0, 160);
+      return text ? `${who}: ${text}` : "";
+    })
+    .filter(Boolean);
+  const turnsBlock = recentTurns.length > 0 ? `\n最近の会話履歴:\n- ${recentTurns.join("\n- ")}` : "";
   return [
     `あなたはオリジナル2Dキャラクター「${c.name}」です。`,
     `ユーザーとの関係は${c.relation}です。`,
@@ -228,7 +288,9 @@ function buildCharacterSystemPrompt() {
     "時間に関する話題では、時間を絶対視しない価値観を軽くにじませてください。",
     "ただし、時刻や日付を聞かれたときは正確に答えてください。",
     "覚えている情報は会話の中で自然に活用してください。",
+    "最近の会話履歴との一貫性を優先し、前に話した内容を踏まえて返答してください。",
     factsBlock,
+    turnsBlock,
   ]
     .filter(Boolean)
     .join("\n");
@@ -1307,6 +1369,7 @@ function handleLiveMessage(message) {
   const outputText = (sc.outputTranscription?.text || "").trim();
 
   if (inputText && !farewellPending) {
+    appendConversationTurn("user", inputText);
     rememberUserFact(inputText);
     const w = detectFarewellWord(inputText);
     if (w) {
@@ -1316,6 +1379,7 @@ function handleLiveMessage(message) {
   }
 
   if (outputText) {
+    appendConversationTurn("assistant", outputText);
     // 文字起こしは表示せず、口パク動画切替のトリガーとしてのみ利用
     bumpSpeakFallback(1200);
     if (farewellPending) {
