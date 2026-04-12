@@ -88,7 +88,7 @@ const MEMORY_MAX_TURNS = 180;
 const MEMORY_PROMPT_TURNS = 24;
 const NOW_CACHE_MS = 20000;
 const VOICE_PRESET_STORAGE_KEY = "momo_voice_presets_v1";
-const FORCED_VOICE_NAME = "Puck";
+const FORCED_VOICE_NAME = "Charon";
 const MEMORY_HINTS = [
   "名前",
   "呼び",
@@ -148,7 +148,7 @@ function buildDefaultMemory() {
       responseStyle:
         "落ち着いてマイペース。急かされても慌てず、少しズレた視点を混ぜる。ただし相手への思いやりは忘れない。",
       voiceStyle:
-        "落ち着いた優しい青年の声で話す。はしゃいだ明るさは抑え、静かで穏やかに寄り添うトーン。テンポは少しゆっくり、抑揚は控えめ。低く渋い響きも高すぎる軽さも避け、やわらかく暖かい声質を優先する。威圧感は出さず、安心できる誠実な話し方にする。語尾は丁寧に、そっと置く。",
+        "低めで落ち着いた若い剣士のような声。寡黙でぶっきらぼうすぎず、短く芯のある言い方。過度に明るくせず、ゆっくりめで安定したテンポ。荒さは少しだけ残しつつ、威圧感は抑え、信頼感のある男らしいトーンで話す。",
     },
     facts: [],
     turns: [],
@@ -334,7 +334,7 @@ function applyCharacterConfigToMemory(config) {
     responseStyle: responseText,
     voiceStyle:
       (config.voice_style || "").toString().trim() ||
-      "落ち着いた優しい青年の声で話す。はしゃいだ明るさは抑え、静かで穏やかに寄り添うトーン。テンポは少しゆっくり、抑揚は控えめ。低く渋い響きも高すぎる軽さも避け、やわらかく暖かい声質を優先する。威圧感は出さず、安心できる誠実な話し方にする。語尾は丁寧に、そっと置く。",
+      "低めで落ち着いた若い剣士のような声。寡黙でぶっきらぼうすぎず、短く芯のある言い方。過度に明るくせず、ゆっくりめで安定したテンポ。荒さは少しだけ残しつつ、威圧感は抑え、信頼感のある男らしいトーンで話す。",
   };
   saveGrowthMemory();
   clearPreparedLiveSession(true);
@@ -377,7 +377,7 @@ function applyCharacterPreset(memory) {
     responseStyle:
       "落ち着いてマイペース。急かされても慌てず、少しズレた視点を混ぜる。ただし相手への思いやりは忘れない。",
     voiceStyle:
-      "落ち着いた優しい青年の声で話す。はしゃいだ明るさは抑え、静かで穏やかに寄り添うトーン。テンポは少しゆっくり、抑揚は控えめ。低く渋い響きも高すぎる軽さも避け、やわらかく暖かい声質を優先する。威圧感は出さず、安心できる誠実な話し方にする。語尾は丁寧に、そっと置く。",
+      "低めで落ち着いた若い剣士のような声。寡黙でぶっきらぼうすぎず、短く芯のある言い方。過度に明るくせず、ゆっくりめで安定したテンポ。荒さは少しだけ残しつつ、威圧感は抑え、信頼感のある男らしいトーンで話す。",
   };
 }
 applyCharacterPreset(growthMemory);
