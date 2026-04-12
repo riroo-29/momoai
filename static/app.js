@@ -92,6 +92,12 @@ const FORCED_VOICE_NAME = "Charon";
 const MEMORY_HINTS = [
   "名前",
   "呼び",
+  "一人称",
+  "俺",
+  "僕",
+  "ぼく",
+  "わたし",
+  "私",
   "誕生日",
   "兄弟",
   "家族",
@@ -226,6 +232,41 @@ function rememberUserFact(text) {
   saveGrowthMemory();
   // 次セッション開始時に必ず最新メモリを反映
   clearPreparedLiveSession(true);
+}
+
+function maybeLearnCharacterPreference(text) {
+  const raw = (text || "").trim();
+  if (!raw) return false;
+  let changed = false;
+  const c = growthMemory.character || {};
+
+  // 例: 「一人称を俺にして」「一人称は俺」「俺で」
+  let fp = "";
+  const m1 = raw.match(/一人称(?:は|を)?\s*([^\s、。！!？?]+)/);
+  if (m1?.[1]) fp = m1[1];
+  if (!fp && /(?:^|[、。])\s*俺で(?:お願いします|頼む|いい)?/.test(raw)) fp = "俺";
+  if (!fp && /一人称.*俺/.test(raw)) fp = "俺";
+  if (!fp && /一人称.*ぼく|一人称.*僕/.test(raw)) fp = "ぼく";
+
+  if (fp && c.firstPerson !== fp) {
+    c.firstPerson = fp;
+    changed = true;
+    appendConversationTurn("assistant", `了解。一人称は「${fp}」でいく。`);
+  }
+
+  // 呼び方変更も最小対応
+  const m2 = raw.match(/(?:呼び方|呼び名|呼称)(?:は|を)?\s*([^\s、。！!？?]+)/);
+  if (m2?.[1] && c.userCall !== m2[1]) {
+    c.userCall = m2[1];
+    changed = true;
+  }
+
+  if (changed) {
+    growthMemory.character = c;
+    saveGrowthMemory();
+    clearPreparedLiveSession(true);
+  }
+  return changed;
 }
 
 function appendConversationTurn(role, text) {
@@ -365,19 +406,11 @@ async function loadCharacterConfig(forceRefresh = false) {
 
 function applyCharacterPreset(memory) {
   if (!memory || typeof memory !== "object") return;
+  const base = buildDefaultMemory().character;
+  const existing = memory.character || {};
   memory.character = {
-    ...(memory.character || {}),
-    name: "もも",
-    relation: "兄弟",
-    firstPerson: "ぼく、拙者",
-    userCall: "リロー",
-    endingStyle: "語尾はたまに「ござる」。基本は自然な普通口調。",
-    worldview:
-      "人間社会の常識にまだ疎く、時間に強く縛られない。自分のペースを大事にする、少しだらけた独自の世界観を持つ。",
-    responseStyle:
-      "落ち着いてマイペース。急かされても慌てず、少しズレた視点を混ぜる。ただし相手への思いやりは忘れない。",
-    voiceStyle:
-      "低めで男らしい青年の声。寡黙で無愛想な剣士のような雰囲気を持たせる。声は重心が低く、少し乾いた質感で、軽さや甘さは抑える。渋すぎる中年声にはせず、若いまま芯の強さと荒さを感じさせる。話し方は短く、ぶっきらぼうで、無駄な抑揚は少なめ。威圧感はあるが怒鳴りすぎず、落ち着いた迫力を出す。冷たすぎず、不器用な優しさが少しにじむようにする。",
+    ...base,
+    ...existing,
   };
 }
 applyCharacterPreset(growthMemory);
@@ -1369,6 +1402,7 @@ function handleLiveMessage(message) {
   const outputText = (sc.outputTranscription?.text || "").trim();
 
   if (inputText && !farewellPending) {
+    maybeLearnCharacterPreference(inputText);
     appendConversationTurn("user", inputText);
     rememberUserFact(inputText);
     const w = detectFarewellWord(inputText);
