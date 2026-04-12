@@ -116,10 +116,20 @@ const MEMORY_HINTS = [
 ];
 const NOW_QUERY_PATTERNS = [
   "いまなんじ",
+  "いまなんじですか",
   "なんじ",
-  "時刻",
   "何時",
+  "何時？",
+  "何時ですか",
+  "今何時",
+  "今何時？",
+  "今の時間",
+  "いまの時間",
+  "現在時刻",
+  "時間",
+  "時刻",
   "今日何日",
+  "今日の日付",
   "きょうなんにち",
   "日付",
   "曜日",
@@ -133,6 +143,19 @@ const SEARCH_QUERY_PATTERNS = [
   "google",
   "最新",
   "ニュース",
+  "天気",
+  "天候",
+  "気温",
+  "最高気温",
+  "最低気温",
+  "降水確率",
+  "降水",
+  "雨",
+  "晴れ",
+  "湿度",
+  "風速",
+  "台風",
+  "花粉",
   "とは",
   "誰",
   "だれ",
@@ -548,10 +571,13 @@ function isNowQuestion(text) {
 }
 
 function buildNowAssistInstruction(nowInfo) {
+  const exact = `現在は ${nowInfo.nowJst}（${nowInfo.timezone}）です。`;
   return [
     "ユーザーが現在時刻/日付を質問しました。",
+    "推測・概算は禁止。必ず次の文をそのまま返答してください。",
+    "この返答以外の説明や前置きは入れないでください。",
     `正確な現在情報: ${nowInfo.nowJst}（${nowInfo.timezone}）`,
-    "上記の時刻だけを根拠に、短く自然に返答してください。",
+    `返答固定文: 「${exact}」`,
   ].join("\n");
 }
 
@@ -565,6 +591,8 @@ function extractSearchQuery(text) {
   return (text || "")
     .replace(/(検索して|検索|調べて|しらべて|ググって|ググると|教えて|最新の|最新)/g, "")
     .replace(/^(ねえ|もも|えっと|あの)\s*/g, "")
+    .replace(/[?？!！。]/g, "")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
