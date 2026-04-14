@@ -179,6 +179,27 @@ const CODE_QUERY_PATTERNS = [
   "react",
   "node",
 ];
+const LAUNCH_VERBS = ["開いて", "ひらいて", "開く", "起動して", "起動", "開いてくれる", "開いてほしい"];
+const LAUNCH_TARGETS = [
+  {
+    name: "Instagram",
+    keys: ["インスタ", "instagram", "インスタグラム"],
+    schemeUrl: "instagram://app",
+    webUrl: "https://www.instagram.com/",
+  },
+  {
+    name: "LINE",
+    keys: ["line", "ライン"],
+    schemeUrl: "line://",
+    webUrl: "https://line.me/",
+  },
+  {
+    name: "YouTube",
+    keys: ["youtube", "ユーチューブ", "ようつべ"],
+    schemeUrl: "youtube://",
+    webUrl: "https://www.youtube.com/",
+  },
+];
 
 function buildDefaultMemory() {
   return {
@@ -612,6 +633,46 @@ function isCodeRequest(text) {
   return CODE_QUERY_PATTERNS.some((p) => normalized.includes(normalizeSpeechText(p)));
 }
 
+function getLaunchTarget(text) {
+  const normalized = normalizeSpeechText(text);
+  if (!normalized) return null;
+  const hasVerb = LAUNCH_VERBS.some((v) => normalized.includes(normalizeSpeechText(v)));
+  if (!hasVerb) return null;
+  return LAUNCH_TARGETS.find((t) => t.keys.some((k) => normalized.includes(normalizeSpeechText(k)))) || null;
+}
+
+function openExternalUrl(url) {
+  if (!url) return false;
+  try {
+    const w = window.open(url, "_blank", "noopener,noreferrer");
+    if (w) return true;
+  } catch (_) {
+    // noop
+  }
+  try {
+    window.location.assign(url);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function launchTargetWithFallback(target) {
+  if (!target) return false;
+  const openedScheme = target.schemeUrl ? openExternalUrl(target.schemeUrl) : false;
+  // スキームが無効/未インストール時はWebへフォールバック
+  if (!openedScheme && target.webUrl) {
+    return openExternalUrl(target.webUrl);
+  }
+  if (target.webUrl) {
+    setTimeout(() => {
+      // 一部ブラウザではカスタムスキームが失敗しても例外にならないため、保険でWeb版を再試行
+      openExternalUrl(target.webUrl);
+    }, 1200);
+  }
+  return openedScheme;
+}
+
 function extractSearchQuery(text) {
   return (text || "")
     .replace(/(検索して|検索|調べて|しらべて|ググって|ググると|教えて|最新の|最新)/g, "")
@@ -669,10 +730,22 @@ async function maybeHandleUtilityIntent(inputText) {
   const wantsNow = isNowQuestion(text);
   const wantsSearch = isSearchQuestion(text) && !wantsNow;
   const wantsCode = isCodeRequest(text) && !wantsNow && !wantsSearch;
-  if (!wantsNow && !wantsSearch && !wantsCode) return;
+  const launchTarget = !wantsNow && !wantsSearch && !wantsCode ? getLaunchTarget(text) : null;
+  const wantsLaunch = !!launchTarget;
+  if (!wantsNow && !wantsSearch && !wantsCode && !wantsLaunch) return;
 
   utilityInFlight = true;
   try {
+    if (wantsLaunch) {
+      const ok = launchTargetWithFallback(launchTarget);
+      setVoiceStatus(
+        ok
+          ? `${launchTarget.name}を開くね。`
+          : `${launchTarget.name}を開けなかった。ブラウザ設定を確認してね。`,
+      );
+      return;
+    }
+
     if (wantsNow) {
       const nowInfo = await fetchNowInfo(true);
       if (!liveActive) return;
@@ -696,6 +769,7 @@ async function maybeHandleUtilityIntent(inputText) {
   } catch (e) {
     if (wantsSearch) setVoiceStatus(`検索補助エラー: ${e?.message || e}`);
     else if (wantsCode) setVoiceStatus(`コード補助エラー: ${e?.message || e}`);
+    else if (wantsLaunch) setVoiceStatus(`起動補助エラー: ${e?.message || e}`);
     else setVoiceStatus(`時刻補助エラー: ${e?.message || e}`);
   } finally {
     utilityInFlight = false;
