@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 import json
 import os
+import shlex
+import subprocess
+import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib import error, request
@@ -12,10 +15,23 @@ PORT = int(os.getenv("PORT", "8000"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
+LOCAL_TOOL_MODE = os.getenv("LOCAL_TOOL_MODE", "1") == "1"
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
 MAX_TURNS = 12
+TOOL_TIMEOUT_SEC = 15
+
+ALLOWED_COMMANDS = {
+    ("pwd",),
+    ("ls",),
+    ("ls", "-la"),
+    ("git", "status"),
+    ("git", "log", "--oneline", "-n", "5"),
+    ("git", "branch"),
+    ("python3", "--version"),
+    ("node", "--version"),
+}
 
 SYSTEM_PROMPT = """
 あなたはオリジナル2Dキャラクター「焔丸(ほむらまる)」です。
@@ -189,6 +205,53 @@ def build_now_info() -> dict:
     }
 
 
+def is_allowed_command(parts: list[str]) -> bool:
+    if not parts:
+        return False
+    cmd = tuple(parts)
+    if cmd in ALLOWED_COMMANDS:
+        return True
+    # npm run <script> はローカル開発で利用頻度が高いので許可
+    if len(parts) == 3 and parts[0] == "npm" and parts[1] == "run":
+        return True
+    return False
+
+
+def run_safe_command(command: str) -> dict:
+    parts = shlex.split(command.strip())
+    if not is_allowed_command(parts):
+        raise RuntimeError("このコマンドは許可リスト外です。")
+    proc = subprocess.run(
+        parts,
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        timeout=TOOL_TIMEOUT_SEC,
+    )
+    return {
+        "command": command,
+        "returnCode": proc.returncode,
+        "stdout": (proc.stdout or "").strip()[:12000],
+        "stderr": (proc.stderr or "").strip()[:12000],
+    }
+
+
+def open_target_url(target_url: str) -> bool:
+    url = (target_url or "").strip()
+    if not url:
+        raise RuntimeError("url が空です")
+    # 危険なスキームは拒否
+    if not (
+        url.startswith("http://")
+        or url.startswith("https://")
+        or url.startswith("instagram://")
+        or url.startswith("line://")
+        or url.startswith("youtube://")
+    ):
+        raise RuntimeError("許可されていないURLスキームです。")
+    return webbrowser.open(url, new=2)
+
+
 class AppHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path: str) -> str:
         # Serve static files from ./static
@@ -197,6 +260,39 @@ class AppHandler(SimpleHTTPRequestHandler):
         return str(STATIC_DIR / rel)
 
     def do_POST(self):
+        if self.path == "/api/tools/open":
+            if not LOCAL_TOOL_MODE:
+                self.respond_json(403, {"error": "LOCAL_TOOL_MODE が無効です"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                data = self.rfile.read(length)
+                payload = json.loads(data.decode("utf-8"))
+                url = (payload.get("url") or "").strip()
+                opened = open_target_url(url)
+                self.respond_json(200, {"ok": True, "opened": bool(opened), "url": url})
+            except Exception as e:
+                self.respond_json(500, {"error": str(e)})
+            return
+
+        if self.path == "/api/tools/exec":
+            if not LOCAL_TOOL_MODE:
+                self.respond_json(403, {"error": "LOCAL_TOOL_MODE が無効です"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                data = self.rfile.read(length)
+                payload = json.loads(data.decode("utf-8"))
+                command = (payload.get("command") or "").strip()
+                if not command:
+                    self.respond_json(400, {"error": "command が空です"})
+                    return
+                result = run_safe_command(command)
+                self.respond_json(200, {"ok": True, "result": result})
+            except Exception as e:
+                self.respond_json(500, {"error": str(e)})
+            return
+
         if self.path != "/api/chat":
             self.send_error(404, "Not Found")
             return
@@ -251,6 +347,16 @@ class AppHandler(SimpleHTTPRequestHandler):
                 self.respond_json(200, result)
             except Exception as e:
                 self.respond_json(500, {"error": str(e)})
+            return
+        if parsed.path == "/api/tools/status":
+            self.respond_json(
+                200,
+                {
+                    "localToolMode": LOCAL_TOOL_MODE,
+                    "allowedCommands": [" ".join(c) for c in sorted(ALLOWED_COMMANDS)] + ["npm run <script>"],
+                    "root": str(ROOT),
+                },
+            )
             return
         super().do_GET()
 
