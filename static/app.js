@@ -162,6 +162,23 @@ const SEARCH_QUERY_PATTERNS = [
   "どこ",
   "いつ",
 ];
+const CODE_QUERY_PATTERNS = [
+  "コード",
+  "プログラム",
+  "実装",
+  "関数",
+  "バグ",
+  "デバッグ",
+  "修正して",
+  "エラー直して",
+  "javascript",
+  "typescript",
+  "python",
+  "html",
+  "css",
+  "react",
+  "node",
+];
 
 function buildDefaultMemory() {
   return {
@@ -348,7 +365,9 @@ function buildCharacterSystemPrompt() {
     `${c.worldview || ""}`,
     `${c.responseStyle || ""}`,
     `声と話し方の演技方針: ${c.voiceStyle || ""}`,
-    "親しみやすく自然に話し、長文を避けて短めに返答してください。",
+    "親しみやすく自然に話し、通常会話は短めに返答してください。",
+    "ただしユーザーがコード生成を依頼した場合は、短文制限を解除し、正確な実装コードを優先してください。",
+    "コード生成時は、要件を満たすコード、実行手順、注意点を簡潔に示してください。",
     "時間に関する話題では、時間を絶対視しない価値観を軽くにじませてください。",
     "ただし、時刻や日付を聞かれたときは正確に答えてください。",
     "覚えている情報は会話の中で自然に活用してください。",
@@ -587,6 +606,12 @@ function isSearchQuestion(text) {
   return SEARCH_QUERY_PATTERNS.some((p) => normalized.includes(normalizeSpeechText(p)));
 }
 
+function isCodeRequest(text) {
+  const normalized = normalizeSpeechText(text);
+  if (!normalized) return false;
+  return CODE_QUERY_PATTERNS.some((p) => normalized.includes(normalizeSpeechText(p)));
+}
+
 function extractSearchQuery(text) {
   return (text || "")
     .replace(/(検索して|検索|調べて|しらべて|ググって|ググると|教えて|最新の|最新)/g, "")
@@ -618,6 +643,18 @@ function buildSearchAssistInstruction(userQuestion, searchResult) {
   ].join("\n");
 }
 
+function buildCodeAssistInstruction(userQuestion) {
+  return [
+    "ユーザーがコード生成を依頼しています。次のルールで返答してください。",
+    `要望: ${userQuestion}`,
+    "1) まず不足要件があるか1行で確認（不足がなければ省略可）",
+    "2) 実装コードを提示（必要ならファイル名も明記）",
+    "3) 実行手順を短く示す",
+    "4) つまずきやすい注意点を1つ添える",
+    "通常会話より実装の正確さを優先してください。",
+  ].join("\n");
+}
+
 async function maybeHandleUtilityIntent(inputText) {
   if (!liveActive || farewellPending || utilityInFlight) return;
   const text = (inputText || "").trim();
@@ -631,7 +668,8 @@ async function maybeHandleUtilityIntent(inputText) {
 
   const wantsNow = isNowQuestion(text);
   const wantsSearch = isSearchQuestion(text) && !wantsNow;
-  if (!wantsNow && !wantsSearch) return;
+  const wantsCode = isCodeRequest(text) && !wantsNow && !wantsSearch;
+  if (!wantsNow && !wantsSearch && !wantsCode) return;
 
   utilityInFlight = true;
   try {
@@ -642,12 +680,23 @@ async function maybeHandleUtilityIntent(inputText) {
       return;
     }
 
-    const query = extractSearchQuery(text) || text;
-    const result = await fetchGoogleSearchInfo(query);
-    if (!liveActive) return;
-    sendOneShotInstruction(buildSearchAssistInstruction(text, result));
+    if (wantsSearch) {
+      const query = extractSearchQuery(text) || text;
+      const result = await fetchGoogleSearchInfo(query);
+      if (!liveActive) return;
+      sendOneShotInstruction(buildSearchAssistInstruction(text, result));
+      return;
+    }
+
+    if (wantsCode) {
+      sendOneShotInstruction(buildCodeAssistInstruction(text));
+      setVoiceStatus("コード生成モードで返答するよ。");
+      return;
+    }
   } catch (e) {
-    setVoiceStatus(`検索補助エラー: ${e?.message || e}`);
+    if (wantsSearch) setVoiceStatus(`検索補助エラー: ${e?.message || e}`);
+    else if (wantsCode) setVoiceStatus(`コード補助エラー: ${e?.message || e}`);
+    else setVoiceStatus(`時刻補助エラー: ${e?.message || e}`);
   } finally {
     utilityInFlight = false;
   }
