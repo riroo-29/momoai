@@ -114,7 +114,7 @@ const MEMORY_HINTS = [
   "推し",
   "記念日",
 ];
-const NOW_QUERY_PATTERNS = [
+const NOW_QUERY_PATTERNS_STRONG = [
   "いまなんじ",
   "いまなんじですか",
   "なんじ",
@@ -123,18 +123,12 @@ const NOW_QUERY_PATTERNS = [
   "何時ですか",
   "今何時",
   "今何時？",
-  "今の時間",
-  "いまの時間",
-  "現在時刻",
-  "時間",
-  "時刻",
   "今日何日",
-  "今日の日付",
   "きょうなんにち",
-  "日付",
-  "曜日",
   "何曜日",
 ];
+const NOW_QUERY_PATTERNS_WEAK = ["今の時間", "いまの時間", "現在時刻", "今日の日付", "日付", "曜日", "時間", "時刻"];
+const NOW_QUESTION_HINTS = ["教えて", "知りたい", "何時", "なんじ", "何日", "なんにち", "何曜日", "確認", "現在", "今って"];
 const SEARCH_QUERY_PATTERNS = [
   "検索",
   "調べて",
@@ -606,9 +600,20 @@ async function fetchNowInfo(forceRefresh = false) {
 }
 
 function isNowQuestion(text) {
-  const normalized = normalizeSpeechText(text);
+  const raw = (text || "").trim();
+  if (!raw) return false;
+  const normalized = normalizeSpeechText(raw);
   if (!normalized) return false;
-  return NOW_QUERY_PATTERNS.some((p) => normalized.includes(normalizeSpeechText(p)));
+
+  if (NOW_QUERY_PATTERNS_STRONG.some((p) => normalized.includes(normalizeSpeechText(p)))) return true;
+
+  const hasWeak = NOW_QUERY_PATTERNS_WEAK.some((p) => normalized.includes(normalizeSpeechText(p)));
+  if (!hasWeak) return false;
+
+  const hasQuestionMark = raw.includes("?") || raw.includes("？");
+  if (hasQuestionMark) return true;
+
+  return NOW_QUESTION_HINTS.some((p) => normalized.includes(normalizeSpeechText(p)));
 }
 
 function buildNowAssistInstruction(nowInfo) {
