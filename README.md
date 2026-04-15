@@ -38,6 +38,34 @@ python3 server.py
   - 「インスタ開いて」「ライン開いて」「YouTube開いて」で起動補助
   - 「Codexに ○○して」で `/api/codex/task` に依頼送信
 
+### WindowsでCodex自動実行する（ブリッジ）
+
+1. Windows側でこのフォルダの `tools/windows_codex_bridge.py` を配置  
+2. PowerShell / CMDで環境変数を設定
+
+```bat
+set BRIDGE_TOKEN=your-strong-token
+set BRIDGE_PORT=8787
+set CODEX_CLI=codex
+set CODEX_FIXED_ARGS=
+set CODEX_TASK_PREFIX=
+```
+
+3. ブリッジを起動
+
+```bat
+tools\start_windows_codex_bridge.bat
+```
+
+4. もも側（`ai_character_web/.env` か Cloudflare env）で以下を設定
+
+```bash
+CODEX_BRIDGE_URL=http://<windows-host-or-tunnel>/run-task
+CODEX_BRIDGE_TOKEN=your-strong-token
+```
+
+5. これで、ももに「Codexに〇〇して」と話すとブリッジ経由で自動実行されます。
+
 ## 4. カスタマイズ
 
 - キャラ性格（テキスト）: `server.py` の `SYSTEM_PROMPT`
@@ -84,6 +112,7 @@ cd ai_character_web
 - 会話モードは Gemini Live API（WebSocket）を使います。
 - 現在の実装は `GEMINI_API_KEY` をクライアントへ返すため、公開運用時はキー漏えい対策（Ephemeral Token/中継サーバー化）が必須です。
 - `CODEX_BRIDGE_URL` を設定すると、`/api/codex/task` が外部のCodex連携サーバーへ依頼を転送します。
+- `CODEX_BRIDGE_URL` が未設定の場合は、ローカル版は `codex_tasks/pending.jsonl` にキュー保存、公開版は受領のみ（queued）です。
 
 ## 6. 無料の固定URL（Cloudflare Pages: `*.pages.dev`）
 
