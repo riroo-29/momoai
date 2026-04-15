@@ -34,6 +34,9 @@ python3 server.py
 
 - 音声会話専用UI: `会話モード開始` を押してマイク許可
 - 音声の種類: `Live音声選択` で変更
+- ローカル実行（server.py起動時）:
+  - 「インスタ開いて」「ライン開いて」「YouTube開いて」で起動補助
+  - 「Codexに ○○して」で `/api/codex/task` に依頼送信
 
 ## 4. カスタマイズ
 
@@ -80,6 +83,7 @@ cd ai_character_web
 - Gemini APIキーは [Google AI Studio](https://aistudio.google.com/apikey) で発行できます。
 - 会話モードは Gemini Live API（WebSocket）を使います。
 - 現在の実装は `GEMINI_API_KEY` をクライアントへ返すため、公開運用時はキー漏えい対策（Ephemeral Token/中継サーバー化）が必須です。
+- `CODEX_BRIDGE_URL` を設定すると、`/api/codex/task` が外部のCodex連携サーバーへ依頼を転送します。
 
 ## 6. 無料の固定URL（Cloudflare Pages: `*.pages.dev`）
 

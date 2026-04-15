@@ -175,6 +175,14 @@ const CODE_QUERY_PATTERNS = [
 ];
 const LAUNCH_VERBS = ["開いて", "ひらいて", "開く", "起動して", "起動", "開いてくれる", "開いてほしい"];
 const EXEC_VERBS = ["実行して", "実行", "走らせて", "runして", "run して"];
+const CODEX_REQUEST_PATTERNS = [
+  "codexに",
+  "コーデックスに",
+  "codexへ",
+  "コーデックスへ",
+  "codexへ依頼",
+  "コーデックスへ依頼",
+];
 const LAUNCH_TARGETS = [
   {
     name: "Instagram",
@@ -660,6 +668,23 @@ function extractExecCommand(text) {
   return "";
 }
 
+function isCodexRequest(text) {
+  const normalized = normalizeSpeechText(text);
+  if (!normalized) return false;
+  return CODEX_REQUEST_PATTERNS.some((p) => normalized.includes(normalizeSpeechText(p)));
+}
+
+function extractCodexTask(text) {
+  const raw = (text || "").trim();
+  if (!raw) return "";
+  const cleaned = raw
+    .replace(/^(ねえ|もも|えっと|あの)\s*/i, "")
+    .replace(/(codex|コーデックス)\s*(に|へ)\s*/i, "")
+    .replace(/(お願い|依頼|頼む|して)\s*$/i, "")
+    .trim();
+  return cleaned;
+}
+
 async function openViaLocalToolApi(target) {
   if (!target?.schemeUrl && !target?.webUrl) return false;
   const tryUrls = [target.schemeUrl, target.webUrl].filter(Boolean);
@@ -691,6 +716,19 @@ async function execViaLocalToolApi(command) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error || `exec failed (${res.status})`);
   return data?.result || null;
+}
+
+async function dispatchCodexTask(task) {
+  const reqTask = (task || "").trim();
+  if (!reqTask) throw new Error("依頼内容が空です");
+  const res = await fetch("/api/codex/task", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ task: reqTask }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || `codex task failed (${res.status})`);
+  return data?.result || {};
 }
 
 function openExternalUrl(url) {
@@ -787,9 +825,14 @@ async function maybeHandleUtilityIntent(inputText) {
   const wantsCode = isCodeRequest(text) && !wantsNow && !wantsSearch;
   const launchTarget = !wantsNow && !wantsSearch && !wantsCode ? getLaunchTarget(text) : null;
   const execCommand = !wantsNow && !wantsSearch && !wantsCode && !launchTarget ? extractExecCommand(text) : "";
+  const codexTask =
+    !wantsNow && !wantsSearch && !wantsCode && !launchTarget && !execCommand && isCodexRequest(text)
+      ? extractCodexTask(text)
+      : "";
   const wantsLaunch = !!launchTarget;
   const wantsExec = !!execCommand;
-  if (!wantsNow && !wantsSearch && !wantsCode && !wantsLaunch && !wantsExec) return;
+  const wantsCodex = !!codexTask;
+  if (!wantsNow && !wantsSearch && !wantsCode && !wantsLaunch && !wantsExec && !wantsCodex) return;
 
   utilityInFlight = true;
   try {
@@ -811,6 +854,20 @@ async function maybeHandleUtilityIntent(inputText) {
       } else {
         const err = (result?.stderr || `終了コード ${result?.returnCode ?? "?"}`).split("\n")[0];
         setVoiceStatus(`実行失敗: ${err}`);
+      }
+      return;
+    }
+
+    if (wantsCodex) {
+      const result = await dispatchCodexTask(codexTask);
+      if (result?.status === "sent") {
+        setVoiceStatus("Codexに依頼を送ったよ。結果が返ったら共有するね。");
+        sendOneShotInstruction("リロー、Codexに依頼を送ったよ。進捗が出たら報告するね。");
+      } else if (result?.status === "queued") {
+        setVoiceStatus("Codex依頼をローカルキューに保存したよ。");
+        sendOneShotInstruction("リロー、Codex依頼をローカルキューに保存したよ。");
+      } else {
+        setVoiceStatus("Codex依頼を受け付けたよ。");
       }
       return;
     }
@@ -840,6 +897,7 @@ async function maybeHandleUtilityIntent(inputText) {
     else if (wantsCode) setVoiceStatus(`コード補助エラー: ${e?.message || e}`);
     else if (wantsLaunch) setVoiceStatus(`起動補助エラー: ${e?.message || e}`);
     else if (wantsExec) setVoiceStatus(`実行補助エラー: ${e?.message || e}`);
+    else if (wantsCodex) setVoiceStatus(`Codex依頼エラー: ${e?.message || e}`);
     else setVoiceStatus(`時刻補助エラー: ${e?.message || e}`);
   } finally {
     utilityInFlight = false;

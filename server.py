@@ -16,9 +16,12 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
 LOCAL_TOOL_MODE = os.getenv("LOCAL_TOOL_MODE", "1") == "1"
+CODEX_BRIDGE_URL = os.getenv("CODEX_BRIDGE_URL", "").strip()
+CODEX_BRIDGE_TOKEN = os.getenv("CODEX_BRIDGE_TOKEN", "").strip()
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
+CODEX_TASK_DIR = ROOT / "codex_tasks"
 MAX_TURNS = 12
 TOOL_TIMEOUT_SEC = 15
 
@@ -252,6 +255,61 @@ def open_target_url(target_url: str) -> bool:
     return webbrowser.open(url, new=2)
 
 
+def dispatch_codex_task(task: str) -> dict:
+    clean_task = (task or "").strip()
+    if not clean_task:
+        raise RuntimeError("task が空です")
+
+    if CODEX_BRIDGE_URL:
+        payload = {
+            "task": clean_task,
+            "source": "momo_voice_app_local",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        headers = {"Content-Type": "application/json"}
+        if CODEX_BRIDGE_TOKEN:
+            headers["Authorization"] = f"Bearer {CODEX_BRIDGE_TOKEN}"
+        req = request.Request(
+            CODEX_BRIDGE_URL,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with request.urlopen(req, timeout=20) as res:
+                data = json.loads(res.read().decode("utf-8"))
+        except error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="ignore")
+            raise RuntimeError(f"Codex bridge error ({e.code}): {detail}") from e
+        except Exception as e:
+            raise RuntimeError(f"Codex bridge request failed: {e}") from e
+        return {
+            "status": "sent",
+            "bridge": CODEX_BRIDGE_URL,
+            "response": data,
+        }
+
+    # bridge未設定時はローカルキューへ保存（後で処理可能）
+    CODEX_TASK_DIR.mkdir(parents=True, exist_ok=True)
+    task_id = f"codex-{int(datetime.now().timestamp() * 1000)}"
+    item = {
+        "id": task_id,
+        "task": clean_task,
+        "source": "momo_voice_app_local",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "status": "queued",
+    }
+    queue_file = CODEX_TASK_DIR / "pending.jsonl"
+    with queue_file.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(item, ensure_ascii=False) + "\n")
+    return {
+        "status": "queued",
+        "taskId": task_id,
+        "queueFile": str(queue_file),
+        "message": "CODEX_BRIDGE_URL が未設定のため、ローカルキューに保存しました。",
+    }
+
+
 class AppHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path: str) -> str:
         # Serve static files from ./static
@@ -260,6 +318,21 @@ class AppHandler(SimpleHTTPRequestHandler):
         return str(STATIC_DIR / rel)
 
     def do_POST(self):
+        if self.path == "/api/codex/task":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                data = self.rfile.read(length)
+                payload = json.loads(data.decode("utf-8"))
+                task = (payload.get("task") or "").strip()
+                if not task:
+                    self.respond_json(400, {"error": "task が空です"})
+                    return
+                result = dispatch_codex_task(task)
+                self.respond_json(200, {"ok": True, "result": result})
+            except Exception as e:
+                self.respond_json(500, {"error": str(e)})
+            return
+
         if self.path == "/api/tools/open":
             if not LOCAL_TOOL_MODE:
                 self.respond_json(403, {"error": "LOCAL_TOOL_MODE が無効です"})
