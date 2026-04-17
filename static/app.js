@@ -87,6 +87,9 @@ const MEMORY_PROMPT_FACTS = 18;
 const MEMORY_MAX_TURNS = 180;
 const MEMORY_PROMPT_TURNS = 24;
 const NOW_CACHE_MS = 20000;
+const CODEX_STATUS_POLL_MS = 1800;
+const CODEX_STATUS_TIMEOUT_MS = 180000;
+const CODEX_RESULT_PREVIEW_MAX = 180;
 const VOICE_PRESET_STORAGE_KEY = "momo_voice_presets_v1";
 const FORCED_VOICE_NAME = "Charon";
 const MEMORY_HINTS = [
@@ -742,6 +745,65 @@ async function dispatchCodexTask(task) {
   return data?.result || {};
 }
 
+async function fetchCodexTaskStatus(taskId) {
+  const id = (taskId || "").trim();
+  if (!id) throw new Error("taskId が空です");
+  const res = await fetch(`/api/codex/task-status?id=${encodeURIComponent(id)}`, {
+    cache: "no-store",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || `codex status failed (${res.status})`);
+  return data?.result || {};
+}
+
+function summarizeCodexTaskResult(task) {
+  const t = task || {};
+  const stdout = String(t.stdout || "").trim();
+  const stderr = String(t.stderr || "").trim();
+  const error = String(t.error || "").trim();
+  if (stdout) return stdout.replace(/\s+/g, " ").slice(0, CODEX_RESULT_PREVIEW_MAX);
+  if (stderr) return `エラー: ${stderr.replace(/\s+/g, " ").slice(0, CODEX_RESULT_PREVIEW_MAX)}`;
+  if (error) return `エラー: ${error.replace(/\s+/g, " ").slice(0, CODEX_RESULT_PREVIEW_MAX)}`;
+  return "結果は受信したけど、要約テキストが空でした。";
+}
+
+async function trackCodexTaskAndReport(taskId) {
+  const startedAt = Date.now();
+  while (liveActive && Date.now() - startedAt < CODEX_STATUS_TIMEOUT_MS) {
+    await new Promise((resolve) => setTimeout(resolve, CODEX_STATUS_POLL_MS));
+    let statusResult;
+    try {
+      statusResult = await fetchCodexTaskStatus(taskId);
+    } catch (_) {
+      continue;
+    }
+    const task = statusResult?.task || {};
+    const status = String(task.status || "").toLowerCase();
+    if (status === "queued" || status === "running" || !status) {
+      setVoiceStatus("Codexが作業中…");
+      continue;
+    }
+
+    if (status === "done") {
+      const summary = summarizeCodexTaskResult(task);
+      setVoiceStatus("Codex作業完了。ももが報告するよ。");
+      sendOneShotInstruction(
+        `Codexの作業が完了したよ。次の内容をリローに口頭で短く報告して: ${summary}`,
+      );
+      return;
+    }
+
+    const failedReason = summarizeCodexTaskResult(task);
+    setVoiceStatus("Codex作業が失敗したよ。");
+    sendOneShotInstruction(`Codexの作業が失敗した。リローに口頭で伝えて。理由: ${failedReason}`);
+    return;
+  }
+  if (liveActive) {
+    setVoiceStatus("Codex結果待ちがタイムアウトしたよ。");
+    sendOneShotInstruction("Codexの結果待ちが長いみたい。あとで再確認してみるね。");
+  }
+}
+
 function openExternalUrl(url) {
   if (!url) return false;
   try {
@@ -882,6 +944,10 @@ async function maybeHandleUtilityIntent(inputText) {
       if (result?.status === "sent") {
         setVoiceStatus("Codexに依頼を送ったよ。結果が返ったら共有するね。");
         sendOneShotInstruction("リロー、Codexに依頼を送ったよ。進捗が出たら報告するね。");
+        const taskId = result?.response?.taskId || "";
+        if (taskId) {
+          trackCodexTaskAndReport(taskId);
+        }
       } else if (result?.status === "queued") {
         setVoiceStatus("Codex依頼をローカルキューに保存したよ。");
         sendOneShotInstruction("リロー、Codex依頼をローカルキューに保存したよ。");

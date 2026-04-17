@@ -7,7 +7,7 @@ import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib import error, request
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 from datetime import datetime, timezone, timedelta
 
 HOST = os.getenv("HOST", "127.0.0.1")
@@ -310,6 +310,31 @@ def dispatch_codex_task(task: str) -> dict:
     }
 
 
+def fetch_codex_task_status(task_id: str) -> dict:
+    tid = (task_id or "").strip()
+    if not tid:
+        raise RuntimeError("id が空です")
+    if not CODEX_BRIDGE_URL:
+        raise RuntimeError("CODEX_BRIDGE_URL 未設定です")
+
+    u = urlparse(CODEX_BRIDGE_URL)
+    bridge_root = f"{u.scheme}://{u.netloc}"
+    status_url = f"{bridge_root}/tasks/{quote(tid, safe='')}"
+    headers = {}
+    if CODEX_BRIDGE_TOKEN:
+        headers["Authorization"] = f"Bearer {CODEX_BRIDGE_TOKEN}"
+    req = request.Request(status_url, headers=headers, method="GET")
+    try:
+        with request.urlopen(req, timeout=20) as res:
+            data = json.loads(res.read().decode("utf-8"))
+    except error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Codex bridge status error ({e.code}): {detail}") from e
+    except Exception as e:
+        raise RuntimeError(f"Codex bridge status request failed: {e}") from e
+    return {"task": data.get("task"), "raw": data}
+
+
 class AppHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path: str) -> str:
         # Serve static files from ./static
@@ -430,6 +455,18 @@ class AppHandler(SimpleHTTPRequestHandler):
                     "root": str(ROOT),
                 },
             )
+            return
+        if parsed.path == "/api/codex/task-status":
+            params = parse_qs(parsed.query)
+            tid = (params.get("id", [""])[0] or "").strip()
+            if not tid:
+                self.respond_json(400, {"error": "id が空です"})
+                return
+            try:
+                result = fetch_codex_task_status(tid)
+                self.respond_json(200, {"ok": True, "result": result})
+            except Exception as e:
+                self.respond_json(500, {"error": str(e)})
             return
         super().do_GET()
 
