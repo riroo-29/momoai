@@ -6,6 +6,7 @@ import subprocess
 import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 HOST = os.getenv("BRIDGE_HOST", "0.0.0.0")
 PORT = int(os.getenv("BRIDGE_PORT", "8787"))
@@ -16,9 +17,11 @@ CODEX_TASK_PREFIX = os.getenv("CODEX_TASK_PREFIX", "").strip()
 CODEX_RUN_TIMEOUT_SEC = int(os.getenv("CODEX_RUN_TIMEOUT_SEC", "1800"))
 MAX_STDOUT = int(os.getenv("BRIDGE_MAX_STDOUT", "20000"))
 MAX_STDERR = int(os.getenv("BRIDGE_MAX_STDERR", "12000"))
+MOMO_CEO_FILE = (os.getenv("MOMO_CEO_FILE", "") or "").strip()
 
 TASKS = {}
 TASKS_LOCK = threading.Lock()
+FILE_LOCK = threading.Lock()
 
 
 def utc_now() -> str:
@@ -30,6 +33,47 @@ def split_fixed_args(s: str) -> list[str]:
         return []
     # simple split for windows cmd style (space separated). Keep it minimal.
     return [x for x in s.split(" ") if x]
+
+
+def resolve_momo_ceo_file() -> Path | None:
+    if MOMO_CEO_FILE:
+        return Path(MOMO_CEO_FILE).expanduser()
+    # default: repo sibling folder ../momo.CEO/momo.CEO
+    candidate = (Path.cwd().resolve().parent / "momo.CEO" / "momo.CEO")
+    if candidate.exists():
+        return candidate
+    return None
+
+
+def append_history(task_id: str, task_text: str, status: str, return_code, stdout: str, stderr: str, error_text: str):
+    target = resolve_momo_ceo_file()
+    if not target:
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    now_local = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    out = (stdout or "").strip()
+    err = (stderr or "").strip()
+    fallback = (error_text or "").strip()
+    response = out or err or fallback or "(no output)"
+    if len(response) > 4000:
+        response = response[:4000] + " ...[truncated]"
+
+    block = (
+        "\n\n---\n"
+        f"## Codex Task {task_id}\n"
+        f"- At: {now_local}\n"
+        f"- Status: {status}\n"
+        f"- ReturnCode: {return_code}\n"
+        f"- Instruction: {task_text}\n\n"
+        "### Response\n"
+        "```\n"
+        f"{response}\n"
+        "```\n"
+    )
+
+    with FILE_LOCK:
+        with target.open("a", encoding="utf-8") as f:
+            f.write(block)
 
 
 def build_command(task: str) -> list[str]:
@@ -94,8 +138,26 @@ def run_task(task_id: str):
             stdout=(proc.stdout or "")[:MAX_STDOUT],
             stderr=(proc.stderr or "")[:MAX_STDERR],
         )
+        append_history(
+            task_id=task_id,
+            task_text=task_text,
+            status="done" if proc.returncode == 0 else "failed",
+            return_code=proc.returncode,
+            stdout=(proc.stdout or "")[:MAX_STDOUT],
+            stderr=(proc.stderr or "")[:MAX_STDERR],
+            error_text="",
+        )
     except Exception as e:
         update_task(task_id, status="failed", error=str(e))
+        append_history(
+            task_id=task_id,
+            task_text=task_text,
+            status="failed",
+            return_code=None,
+            stdout="",
+            stderr="",
+            error_text=str(e),
+        )
 
 
 def auth_ok(headers) -> bool:
@@ -191,4 +253,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
