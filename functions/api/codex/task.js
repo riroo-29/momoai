@@ -56,12 +56,12 @@ export async function onRequestPost(context) {
       return json({ error: `Codex bridge request failed: ${e?.message || e}` }, 500);
     }
 
+    const rawText = await res.text();
     let data;
     try {
-      data = await res.json();
+      data = rawText ? JSON.parse(rawText) : {};
     } catch {
-      const text = await res.text();
-      return json({ error: `Codex bridge response parse failed: ${text}` }, 500);
+      return json({ error: `Codex bridge response parse failed: ${rawText}` }, 500);
     }
 
     if (!res.ok) return json({ error: `Codex bridge error (${res.status}): ${JSON.stringify(data)}` }, 500);
