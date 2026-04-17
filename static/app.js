@@ -178,10 +178,21 @@ const EXEC_VERBS = ["実行して", "実行", "走らせて", "runして", "run 
 const CODEX_REQUEST_PATTERNS = [
   "codexに",
   "コーデックスに",
+  "コデックスに",
+  "コードエックスに",
   "codexへ",
   "コーデックスへ",
+  "コデックスへ",
+  "コードエックスへ",
   "codexへ依頼",
   "コーデックスへ依頼",
+  "コデックスへ依頼",
+  "コードエックスへ依頼",
+  "codex",
+  "コーデックス",
+  "コデックス",
+  "コードエックス",
+  "こーでっくす",
 ];
 const LAUNCH_TARGETS = [
   {
@@ -679,7 +690,7 @@ function extractCodexTask(text) {
   if (!raw) return "";
   const cleaned = raw
     .replace(/^(ねえ|もも|えっと|あの)\s*/i, "")
-    .replace(/(codex|コーデックス)\s*(に|へ)\s*/i, "")
+    .replace(/(codex|コーデックス|コデックス|コードエックス|こーでっくす)\s*(に|へ)?\s*/i, "")
     .replace(/(お願い|依頼|頼む|して)\s*$/i, "")
     .trim();
   return cleaned;
@@ -825,13 +836,17 @@ async function maybeHandleUtilityIntent(inputText) {
   const wantsCode = isCodeRequest(text) && !wantsNow && !wantsSearch;
   const launchTarget = !wantsNow && !wantsSearch && !wantsCode ? getLaunchTarget(text) : null;
   const execCommand = !wantsNow && !wantsSearch && !wantsCode && !launchTarget ? extractExecCommand(text) : "";
-  const codexTask =
+  const codexRequested =
     !wantsNow && !wantsSearch && !wantsCode && !launchTarget && !execCommand && isCodexRequest(text)
+      ? true
+      : false;
+  const codexTask =
+    codexRequested
       ? extractCodexTask(text)
       : "";
   const wantsLaunch = !!launchTarget;
   const wantsExec = !!execCommand;
-  const wantsCodex = !!codexTask;
+  const wantsCodex = codexRequested;
   if (!wantsNow && !wantsSearch && !wantsCode && !wantsLaunch && !wantsExec && !wantsCodex) return;
 
   utilityInFlight = true;
@@ -859,6 +874,10 @@ async function maybeHandleUtilityIntent(inputText) {
     }
 
     if (wantsCodex) {
+      if (!codexTask) {
+        setVoiceStatus("Codexへの依頼内容をもう一度言ってね。例:「CodexにREADME改善して」");
+        return;
+      }
       const result = await dispatchCodexTask(codexTask);
       if (result?.status === "sent") {
         setVoiceStatus("Codexに依頼を送ったよ。結果が返ったら共有するね。");
