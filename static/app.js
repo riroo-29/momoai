@@ -425,7 +425,10 @@ function saveTranscriptUiState() {
 function setTranscriptCollapsed(collapsed) {
   transcriptCollapsed = !!collapsed;
   if (transcriptPanel) transcriptPanel.classList.toggle("is-collapsed", transcriptCollapsed);
-  if (transcriptToggleButton) transcriptToggleButton.textContent = transcriptCollapsed ? "開く" : "閉じる";
+  if (transcriptToggleButton) {
+    transcriptToggleButton.textContent = "会話ログ";
+    transcriptToggleButton.setAttribute("aria-pressed", transcriptCollapsed ? "false" : "true");
+  }
   saveTranscriptUiState();
 }
 
