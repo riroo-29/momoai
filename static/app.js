@@ -2157,6 +2157,8 @@ async function startLiveMode(options = {}) {
       micStartedAfterSetup = true;
       clearStartupWatchdog();
       liveStarting = false;
+      if (liveStartButton) liveStartButton.disabled = false;
+      updateLiveToggleButton();
       const elapsed = wakeDetectedAt > 0 ? Date.now() - wakeDetectedAt : 0;
       setVoiceStatus(
         elapsed > 0
@@ -2193,6 +2195,7 @@ async function startLiveMode(options = {}) {
       socket.send(JSON.stringify(buildLiveSetupMessage(modelName, voiceName)));
       liveActive = true;
       liveSessionStartedAt = Date.now();
+      if (liveStartButton) liveStartButton.disabled = false;
       updateLiveToggleButton();
       setVoiceVideoMode("idle");
       setVoiceStatus("会話モード接続中... セットアップ中");
