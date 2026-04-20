@@ -182,6 +182,7 @@ body.pseudo-fullscreen .display-shell {
   right: 0.75rem;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 7.4rem);
   z-index: 4;
+  pointer-events: auto;
 }
 
 .transcript-panel {
