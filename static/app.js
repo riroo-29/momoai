@@ -371,7 +371,7 @@ function appendConversationTurn(role, text) {
     // assistantの逐次文字起こしは、同一ターン中は常に上書きして1件にまとめる
     if (role === "assistant" && nearMs < 18000) {
       last.text = content;
-      last.displayText = displayText;
+      if (displayText) last.displayText = displayText;
       last.at = now;
       saveGrowthMemory();
       renderTranscript();
@@ -381,7 +381,7 @@ function appendConversationTurn(role, text) {
     if (nearMs < 8000 && (normalized.startsWith(lastNorm) || lastNorm.startsWith(normalized))) {
       if (content.length >= lastText.length) {
         last.text = content;
-        last.displayText = displayText;
+        if (displayText) last.displayText = displayText;
         last.at = now;
         saveGrowthMemory();
       }
