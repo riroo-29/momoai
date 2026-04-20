@@ -474,15 +474,30 @@ function buildTranscriptDisplayText(role, text) {
 }
 
 function extractRankingLines(text) {
-  const src = String(text || "");
+  const src = String(text || "").replace(/\s+/g, " ").trim();
+  if (!src) return [];
+
+  const byRank = new Map();
+  const re = /([1-5])\s*位\s*[：:]?\s*([\s\S]*?)(?=(?:[1-5]\s*位\s*[：:]?)|$)/g;
+  for (const m of src.matchAll(re)) {
+    const rank = Number(m[1]);
+    const rawValue = String(m[2] || "").trim();
+    if (!rawValue) continue;
+    const cleaned = rawValue
+      .replace(/(?:合計|トータル)\s*[：:]?\s*\d+\s*点?.*$/i, "")
+      .replace(/[、,\/\s]+$/g, "")
+      .replace(/[。.!！]+$/g, "")
+      .trim();
+    if (!cleaned) continue;
+    if (!byRank.has(rank) || cleaned.length > byRank.get(rank).length) {
+      byRank.set(rank, cleaned);
+    }
+  }
+
   const out = [];
   for (let i = 1; i <= 5; i += 1) {
-    const re = new RegExp(`(?:^|\\n|\\s)${i}\\s*位\\s*[：:]?\\s*([^\\n]+)`, "i");
-    const m = src.match(re);
-    if (m?.[1]) {
-      const val = m[1].trim().replace(/[。.!！]+$/, "");
-      out.push(`${i}位 ${val}`);
-    }
+    const v = byRank.get(i);
+    if (v) out.push(`${i}位 ${v}`);
   }
   return out.length >= 2 ? out : [];
 }
