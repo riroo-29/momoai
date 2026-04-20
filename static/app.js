@@ -445,6 +445,16 @@ function buildTranscriptDisplayText(role, text) {
   if (!normalized) return "";
   if (role !== "assistant") return normalized;
 
+  const rankingLines = extractRankingLines(normalized);
+  if (rankingLines.length > 0) {
+    return rankingLines.join("\n");
+  }
+
+  const weatherLine = extractWeatherResultLine(normalized);
+  if (weatherLine) {
+    return weatherLine;
+  }
+
   const stripped = normalized
     .replace(/^(了解[。！!]?|わかった[。！!]?|もちろん[。！!]?|いいよ[。！!]?)\s*/i, "")
     .trim();
@@ -460,7 +470,31 @@ function buildTranscriptDisplayText(role, text) {
   );
 
   if (resultOnly.length === 0) return "";
-  return resultOnly.slice(-5).join(" / ").trim();
+  return resultOnly.slice(-5).join("\n").trim();
+}
+
+function extractRankingLines(text) {
+  const src = String(text || "");
+  const out = [];
+  for (let i = 1; i <= 5; i += 1) {
+    const re = new RegExp(`(?:^|\\n|\\s)${i}\\s*位\\s*[：:]?\\s*([^\\n]+)`, "i");
+    const m = src.match(re);
+    if (m?.[1]) {
+      const val = m[1].trim().replace(/[。.!！]+$/, "");
+      out.push(`${i}位 ${val}`);
+    }
+  }
+  return out.length >= 2 ? out : [];
+}
+
+function extractWeatherResultLine(text) {
+  const src = String(text || "");
+  const weatherWords = ["晴れ", "曇り", "くもり", "雨", "雪", "雷", "霧", "台風"];
+  const sentence = src.split(/[。\n]/).map((s) => s.trim()).filter(Boolean);
+  const hit = sentence.find((s) => weatherWords.some((w) => s.includes(w)));
+  if (!hit) return "";
+  if (/今日の天気/.test(hit)) return hit.replace(/[。.!！]+$/, "");
+  return `今日の天気は${hit.replace(/[。.!！]+$/, "")}`;
 }
 
 function mapTranscriptDisplayText(turn, text) {
