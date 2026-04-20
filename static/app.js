@@ -362,6 +362,7 @@ function appendConversationTurn(role, text) {
   const now = Date.now();
   const turns = Array.isArray(growthMemory.turns) ? growthMemory.turns : [];
   const normalized = normalizeMemoryText(content);
+  const displayText = buildTranscriptDisplayText(role, content);
   const last = turns.length > 0 ? turns[turns.length - 1] : null;
   if (last && last.role === role) {
     const lastText = String(last.text || "");
@@ -370,6 +371,7 @@ function appendConversationTurn(role, text) {
     // assistantの逐次文字起こしは、同一ターン中は常に上書きして1件にまとめる
     if (role === "assistant" && nearMs < 18000) {
       last.text = content;
+      last.displayText = displayText;
       last.at = now;
       saveGrowthMemory();
       renderTranscript();
@@ -379,6 +381,7 @@ function appendConversationTurn(role, text) {
     if (nearMs < 8000 && (normalized.startsWith(lastNorm) || lastNorm.startsWith(normalized))) {
       if (content.length >= lastText.length) {
         last.text = content;
+        last.displayText = displayText;
         last.at = now;
         saveGrowthMemory();
       }
@@ -387,7 +390,7 @@ function appendConversationTurn(role, text) {
     if (nearMs < 3500 && normalized === lastNorm) return;
   }
 
-  turns.push({ role, text: content, at: now });
+  turns.push({ role, text: content, displayText, at: now });
   if (turns.length > MEMORY_MAX_TURNS) {
     growthMemory.turns = turns.slice(-MEMORY_MAX_TURNS);
   } else {
@@ -402,13 +405,33 @@ function normalizeTranscriptDisplayText(text) {
   return String(text || "")
     .replace(/\s+/g, " ")
     .replace(/([、。！？])\s+/g, "$1")
-    .replace(/^(了解[。！!]?|わかった[。！!]?|もちろん[。！!]?|いいよ[。！!]?)\s*/i, "")
     .trim();
 }
 
+function buildTranscriptDisplayText(role, text) {
+  const normalized = normalizeTranscriptDisplayText(text);
+  if (!normalized) return "";
+  if (role !== "assistant") return normalized;
+
+  const stripped = normalized
+    .replace(/^(了解[。！!]?|わかった[。！!]?|もちろん[。！!]?|いいよ[。！!]?)\s*/i, "")
+    .trim();
+  const lines = stripped
+    .split(/\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const base = lines.length > 0 ? lines : [stripped];
+  const resultLike = base.filter(
+    (l) =>
+      /結果|合計|順位|現在点|点|勝ち|負け|増減|最終|確定|→|=|:|：|\d/.test(l) ||
+      l.length >= 12,
+  );
+  const pick = (resultLike.length > 0 ? resultLike : base).slice(-3);
+  return pick.join(" / ").trim();
+}
+
 function mapTranscriptDisplayText(turn, text) {
-  // 将来ここを書き換えれば「音声発話」と「ログ表示」を別内容にできる
-  return normalizeTranscriptDisplayText(text);
+  return String(turn?.displayText || "").trim() || buildTranscriptDisplayText(turn?.role || "assistant", text);
 }
 
 function setTranscriptCollapsed(collapsed) {
