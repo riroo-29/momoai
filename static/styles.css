@@ -206,6 +206,12 @@ body.pseudo-fullscreen .display-shell {
   font-size: 0.74rem;
   color: #ffe4ef;
   margin-bottom: 0.35rem;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.15rem 0.1rem 0.3rem;
+  background: linear-gradient(180deg, #0d0814ee 72%, #0d081400);
+  backdrop-filter: blur(2px);
 }
 
 .transcript-toggle-btn {
