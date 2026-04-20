@@ -21,7 +21,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=20260403a" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=20260403a" />
     <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png?v=20260403a" />
-    <link rel="stylesheet" href="/styles.css?v=20260420a" />
+    <link rel="stylesheet" href="/styles.css?v=20260420b" />
   </head>
   <body>
     <main class="phone-stage" aria-label="焔丸AI 音声会話ディスプレイ">
@@ -58,6 +58,10 @@
 
         <div class="hud transcript">
           <div id="transcriptPanel" class="transcript-panel" aria-label="会話ログ">
+            <div class="transcript-head">
+              <span>会話ログ</span>
+              <button id="transcriptToggleButton" type="button" class="transcript-toggle-btn">閉じる</button>
+            </div>
             <div id="transcriptList" class="transcript-list"></div>
           </div>
         </div>
@@ -80,6 +84,6 @@
       </section>
     </main>
 
-    <script src="/app.js?v=20260420a"></script>
+    <script src="/app.js?v=20260420b"></script>
   </body>
 </html>

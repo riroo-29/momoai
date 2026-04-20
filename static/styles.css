@@ -194,6 +194,30 @@ body.pseudo-fullscreen .display-shell {
   backdrop-filter: blur(3px);
 }
 
+.transcript-panel.is-collapsed {
+  max-height: 2.2rem;
+  overflow: hidden;
+}
+
+.transcript-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.74rem;
+  color: #ffe4ef;
+  margin-bottom: 0.35rem;
+}
+
+.transcript-toggle-btn {
+  border: 1px solid #ffffff44;
+  border-radius: 8px;
+  background: #1a1126d9;
+  color: #fff6fb;
+  font-size: 0.7rem;
+  padding: 0.2rem 0.48rem;
+  cursor: pointer;
+}
+
 .transcript-list {
   display: flex;
   flex-direction: column;
@@ -202,12 +226,13 @@ body.pseudo-fullscreen .display-shell {
 
 .transcript-item {
   font-size: 0.76rem;
-  line-height: 1.35;
+  line-height: 1.45;
   padding: 0.36rem 0.5rem;
   border-radius: 10px;
-  max-width: 94%;
-  white-space: pre-wrap;
-  word-break: break-word;
+  max-width: 96%;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 .transcript-item.user {
@@ -222,6 +247,18 @@ body.pseudo-fullscreen .display-shell {
   background: #1a1424e0;
   border: 1px solid #ffd0e444;
   color: #fff6fb;
+}
+
+.transcript-meta {
+  font-size: 0.66rem;
+  opacity: 0.85;
+  margin-bottom: 0.12rem;
+}
+
+.transcript-body {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
 }
 
 .voice-controls {

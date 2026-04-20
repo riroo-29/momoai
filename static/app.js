@@ -14,8 +14,10 @@ const voiceStatus = document.getElementById("voiceStatus");
 const fullscreenButton = document.getElementById("fullscreenButton");
 const transcriptPanel = document.getElementById("transcriptPanel");
 const transcriptList = document.getElementById("transcriptList");
+const transcriptToggleButton = document.getElementById("transcriptToggleButton");
 let pseudoFullscreen = false;
 let textModeEnabled = false;
+let transcriptCollapsed = false;
 
 let liveSocket = null;
 let liveActive = false;
@@ -93,6 +95,7 @@ const MEMORY_PROMPT_FACTS = 18;
 const MEMORY_MAX_TURNS = 180;
 const MEMORY_PROMPT_TURNS = 24;
 const TRANSCRIPT_VISIBLE_TURNS = 36;
+const TRANSCRIPT_UI_STORAGE_KEY = "momo_transcript_ui_v1";
 const NOW_CACHE_MS = 20000;
 const CODEX_STATUS_POLL_MS = 1800;
 const CODEX_STATUS_TIMEOUT_MS = 180000;
@@ -389,9 +392,41 @@ function appendConversationTurn(role, text) {
   clearPreparedLiveSession(true);
 }
 
-function formatTranscriptText(turn) {
-  const who = turn.role === "assistant" ? "もも" : "あなた";
-  return `${who}: ${String(turn.text || "").trim()}`;
+function normalizeTranscriptDisplayText(text) {
+  return String(text || "")
+    .replace(/\s+/g, " ")
+    .replace(/([、。！？])\s+/g, "$1")
+    .trim();
+}
+
+function mapTranscriptDisplayText(turn, text) {
+  // 将来ここを書き換えれば「音声発話」と「ログ表示」を別内容にできる
+  return normalizeTranscriptDisplayText(text);
+}
+
+function loadTranscriptUiState() {
+  try {
+    const raw = localStorage.getItem(TRANSCRIPT_UI_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return { collapsed: !!parsed?.collapsed };
+  } catch (_) {
+    return { collapsed: false };
+  }
+}
+
+function saveTranscriptUiState() {
+  try {
+    localStorage.setItem(TRANSCRIPT_UI_STORAGE_KEY, JSON.stringify({ collapsed: transcriptCollapsed }));
+  } catch (_) {
+    // noop
+  }
+}
+
+function setTranscriptCollapsed(collapsed) {
+  transcriptCollapsed = !!collapsed;
+  if (transcriptPanel) transcriptPanel.classList.toggle("is-collapsed", transcriptCollapsed);
+  if (transcriptToggleButton) transcriptToggleButton.textContent = transcriptCollapsed ? "開く" : "閉じる";
+  saveTranscriptUiState();
 }
 
 function renderTranscript() {
@@ -401,12 +436,22 @@ function renderTranscript() {
   transcriptList.innerHTML = "";
   for (const turn of visibleTurns) {
     const role = turn.role === "assistant" ? "assistant" : "user";
+    const who = role === "assistant" ? "もも" : "あなた";
+    const bodyText = mapTranscriptDisplayText(turn, turn.text || "");
+    if (!bodyText) continue;
     const item = document.createElement("div");
     item.className = `transcript-item ${role}`;
-    item.textContent = formatTranscriptText(turn);
+    const meta = document.createElement("div");
+    meta.className = "transcript-meta";
+    meta.textContent = who;
+    const body = document.createElement("div");
+    body.className = "transcript-body";
+    body.textContent = bodyText;
+    item.appendChild(meta);
+    item.appendChild(body);
     transcriptList.appendChild(item);
   }
-  if (transcriptPanel) {
+  if (transcriptPanel && !transcriptCollapsed) {
     transcriptPanel.scrollTop = transcriptPanel.scrollHeight;
   }
 }
@@ -2346,6 +2391,9 @@ liveStartButton?.addEventListener("click", () => {
 liveStopButton?.addEventListener("click", () => {
   setTextModeEnabled(!textModeEnabled);
 });
+transcriptToggleButton?.addEventListener("click", () => {
+  setTranscriptCollapsed(!transcriptCollapsed);
+});
 textChatForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = textChatInput?.value || "";
@@ -2472,6 +2520,7 @@ window.addEventListener("beforeunload", () => {
 });
 
 setTextModeEnabled(false);
+setTranscriptCollapsed(loadTranscriptUiState().collapsed);
 updateLiveToggleButton();
 renderTranscript();
 setVoiceStatus("準備完了。待機中は「もも」で会話モード開始できます。");
