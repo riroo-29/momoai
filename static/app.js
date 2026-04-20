@@ -367,6 +367,14 @@ function appendConversationTurn(role, text) {
     const lastText = String(last.text || "");
     const lastNorm = normalizeMemoryText(lastText);
     const nearMs = now - Number(last.at || 0);
+    // assistantの逐次文字起こしは、同一ターン中は常に上書きして1件にまとめる
+    if (role === "assistant" && nearMs < 18000) {
+      last.text = content;
+      last.at = now;
+      saveGrowthMemory();
+      renderTranscript();
+      return;
+    }
     // 文字起こしの増分更新を1ターンに統合
     if (nearMs < 8000 && (normalized.startsWith(lastNorm) || lastNorm.startsWith(normalized))) {
       if (content.length >= lastText.length) {
@@ -394,6 +402,7 @@ function normalizeTranscriptDisplayText(text) {
   return String(text || "")
     .replace(/\s+/g, " ")
     .replace(/([、。！？])\s+/g, "$1")
+    .replace(/^(了解[。！!]?|わかった[。！!]?|もちろん[。！!]?|いいよ[。！!]?)\s*/i, "")
     .trim();
 }
 
