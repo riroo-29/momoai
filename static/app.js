@@ -408,9 +408,9 @@ function loadTranscriptUiState() {
   try {
     const raw = localStorage.getItem(TRANSCRIPT_UI_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
-    return { collapsed: !!parsed?.collapsed };
+    return { collapsed: parsed?.collapsed !== false };
   } catch (_) {
-    return { collapsed: false };
+    return { collapsed: true };
   }
 }
 

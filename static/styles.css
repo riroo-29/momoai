@@ -196,8 +196,23 @@ body.pseudo-fullscreen .display-shell {
 }
 
 .transcript-panel.is-collapsed {
-  max-height: 2.2rem;
-  overflow: hidden;
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.transcript-panel.is-collapsed .transcript-list {
+  display: none;
+}
+
+.transcript-panel.is-collapsed .transcript-head {
+  margin-bottom: 0;
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
 }
 
 .transcript-head {
