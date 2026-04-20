@@ -421,13 +421,14 @@ function buildTranscriptDisplayText(role, text) {
     .map((s) => s.trim())
     .filter(Boolean);
   const base = lines.length > 0 ? lines : [stripped];
-  const resultLike = base.filter(
-    (l) =>
-      /結果|合計|順位|現在点|点|勝ち|負け|増減|最終|確定|→|=|:|：|\d/.test(l) ||
-      l.length >= 12,
+
+  // ログ表示は「結果(数値/順位)のみ」に限定
+  const resultOnly = base.filter((l) =>
+    /(順位|現在点|合計|増減|最終|確定|[A-E]\s*[=:：]|[+-]?\d+\s*点|\d+\s*位|\d+)/.test(l),
   );
-  const pick = (resultLike.length > 0 ? resultLike : base).slice(-3);
-  return pick.join(" / ").trim();
+
+  if (resultOnly.length === 0) return "";
+  return resultOnly.slice(-5).join(" / ").trim();
 }
 
 function mapTranscriptDisplayText(turn, text) {
