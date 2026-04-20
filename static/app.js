@@ -370,8 +370,12 @@ function appendConversationTurn(role, text) {
     const nearMs = now - Number(last.at || 0);
     // assistantの逐次文字起こしは、同一ターン中は常に上書きして1件にまとめる
     if (role === "assistant" && nearMs < 18000) {
-      last.text = content;
-      if (displayText) last.displayText = displayText;
+      const mergedText = chooseRicherAssistantText(lastText, content);
+      const mergedDisplay = buildTranscriptDisplayText(role, mergedText);
+      last.text = mergedText;
+      if (shouldReplaceDisplayText(last.displayText, mergedDisplay)) {
+        last.displayText = mergedDisplay;
+      }
       last.at = now;
       saveGrowthMemory();
       renderTranscript();
@@ -399,6 +403,34 @@ function appendConversationTurn(role, text) {
   saveGrowthMemory();
   renderTranscript();
   clearPreparedLiveSession(true);
+}
+
+function countResultTokens(text) {
+  const t = String(text || "");
+  const rankCount = (t.match(/\b[1-5]位\b/g) || []).length + (t.match(/[1-5]位/g) || []).length;
+  const pointCount = (t.match(/[+-]?\d+\s*点/g) || []).length;
+  return rankCount * 10 + pointCount;
+}
+
+function shouldReplaceDisplayText(currentText, nextText) {
+  const next = String(nextText || "").trim();
+  if (!next) return false;
+  const current = String(currentText || "").trim();
+  if (!current) return true;
+  const curScore = countResultTokens(current);
+  const nextScore = countResultTokens(next);
+  if (nextScore !== curScore) return nextScore > curScore;
+  return next.length >= current.length;
+}
+
+function chooseRicherAssistantText(currentText, nextText) {
+  const current = String(currentText || "").trim();
+  const next = String(nextText || "").trim();
+  if (!current) return next;
+  if (!next) return current;
+  if (next.includes(current)) return next;
+  if (current.includes(next)) return current;
+  return next.length >= current.length ? next : current;
 }
 
 function normalizeTranscriptDisplayText(text) {
