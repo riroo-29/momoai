@@ -4,12 +4,18 @@ const characterRig = document.getElementById("characterRig");
 
 const liveStartButton = document.getElementById("liveStartButton");
 const liveStopButton = document.getElementById("liveStopButton");
+const textChatForm = document.getElementById("textChatForm");
+const textChatInput = document.getElementById("textChatInput");
+const textChatSendButton = document.getElementById("textChatSendButton");
 const liveVoiceSelect = document.getElementById("liveVoiceSelect");
 const saveVoicePresetButton = document.getElementById("saveVoicePresetButton");
 const restoreVoicePresetButton = document.getElementById("restoreVoicePresetButton");
 const voiceStatus = document.getElementById("voiceStatus");
 const fullscreenButton = document.getElementById("fullscreenButton");
+const transcriptPanel = document.getElementById("transcriptPanel");
+const transcriptList = document.getElementById("transcriptList");
 let pseudoFullscreen = false;
+let textModeEnabled = false;
 
 let liveSocket = null;
 let liveActive = false;
@@ -86,6 +92,7 @@ const MEMORY_MAX_FACTS = 120;
 const MEMORY_PROMPT_FACTS = 18;
 const MEMORY_MAX_TURNS = 180;
 const MEMORY_PROMPT_TURNS = 24;
+const TRANSCRIPT_VISIBLE_TURNS = 36;
 const NOW_CACHE_MS = 20000;
 const CODEX_STATUS_POLL_MS = 1800;
 const CODEX_STATUS_TIMEOUT_MS = 180000;
@@ -378,7 +385,30 @@ function appendConversationTurn(role, text) {
     growthMemory.turns = turns;
   }
   saveGrowthMemory();
+  renderTranscript();
   clearPreparedLiveSession(true);
+}
+
+function formatTranscriptText(turn) {
+  const who = turn.role === "assistant" ? "もも" : "あなた";
+  return `${who}: ${String(turn.text || "").trim()}`;
+}
+
+function renderTranscript() {
+  if (!transcriptList) return;
+  const turns = Array.isArray(growthMemory.turns) ? growthMemory.turns : [];
+  const visibleTurns = turns.slice(-TRANSCRIPT_VISIBLE_TURNS);
+  transcriptList.innerHTML = "";
+  for (const turn of visibleTurns) {
+    const role = turn.role === "assistant" ? "assistant" : "user";
+    const item = document.createElement("div");
+    item.className = `transcript-item ${role}`;
+    item.textContent = formatTranscriptText(turn);
+    transcriptList.appendChild(item);
+  }
+  if (transcriptPanel) {
+    transcriptPanel.scrollTop = transcriptPanel.scrollHeight;
+  }
 }
 
 function buildCharacterSystemPrompt() {
@@ -1002,6 +1032,71 @@ function syncIosViewportHeight() {
 
 function setVoiceStatus(text) {
   if (voiceStatus) voiceStatus.textContent = text || "";
+}
+
+function updateLiveToggleButton() {
+  if (!liveStartButton) return;
+  if (liveActive) {
+    liveStartButton.textContent = "会話モード停止";
+    liveStartButton.classList.add("live-on");
+  } else if (liveStarting) {
+    liveStartButton.textContent = "会話モード開始";
+    liveStartButton.classList.remove("live-on");
+  } else {
+    liveStartButton.textContent = "会話モード開始";
+    liveStartButton.classList.remove("live-on");
+  }
+}
+
+function setTextModeEnabled(enabled) {
+  textModeEnabled = !!enabled;
+  if (textChatForm) {
+    textChatForm.classList.toggle("is-hidden", !textModeEnabled);
+  }
+  if (liveStopButton) {
+    liveStopButton.textContent = textModeEnabled ? "チャット閉じる" : "チャット送信";
+  }
+  if (textModeEnabled && textChatInput) {
+    setTimeout(() => textChatInput.focus(), 60);
+  }
+}
+
+async function sendTextChat(message) {
+  const text = String(message || "").trim();
+  if (!text) return;
+  maybeLearnCharacterPreference(text);
+  appendConversationTurn("user", text);
+  rememberUserFact(text);
+
+  if (liveActive && liveSocket && liveSocket.readyState === WebSocket.OPEN) {
+    liveSocket.send(
+      JSON.stringify({
+        clientContent: {
+          turns: [{ role: "user", parts: [{ text }] }],
+          turnComplete: true,
+        },
+      }),
+    );
+    setVoiceStatus("送信したよ。");
+    return;
+  }
+
+  const history = (growthMemory.turns || []).slice(-MEMORY_PROMPT_TURNS).map((t) => ({
+    role: t.role === "assistant" ? "assistant" : "user",
+    text: String(t.text || ""),
+  }));
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ message: text, history }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || `送信失敗(${res.status})`);
+  const reply = String(data?.reply || "").trim();
+  if (reply) {
+    appendConversationTurn("assistant", reply);
+    setVoiceStatus("返信したよ。");
+  }
 }
 
 function normalizeSpeechText(text) {
@@ -1923,6 +2018,7 @@ function stopMicStreaming(options = {}) {
 async function startLiveMode(options = {}) {
   if (liveActive || liveStarting) return;
   liveStarting = true;
+  updateLiveToggleButton();
   localStopReason = "";
   lastLiveErrorDetail = "";
   autoGreetPending = !!options.autoGreeting;
@@ -1961,6 +2057,7 @@ async function startLiveMode(options = {}) {
     if (audioContext.state !== "running") {
       clearStartupWatchdog();
       liveStarting = false;
+      updateLiveToggleButton();
       if (liveStartButton) liveStartButton.disabled = false;
       pendingStartAfterUnlock = true;
       if (!audioUnlockHintShown) {
@@ -1994,6 +2091,7 @@ async function startLiveMode(options = {}) {
       connectTimer = setTimeout(() => {
         if (liveSocket !== socket || liveActive) return;
         liveStarting = false;
+        updateLiveToggleButton();
         try {
           socket.close();
         } catch (_) {
@@ -2050,8 +2148,7 @@ async function startLiveMode(options = {}) {
       socket.send(JSON.stringify(buildLiveSetupMessage(modelName, voiceName)));
       liveActive = true;
       liveSessionStartedAt = Date.now();
-      liveStartButton?.classList.add("live-on");
-      if (liveStopButton) liveStopButton.disabled = false;
+      updateLiveToggleButton();
       setVoiceVideoMode("idle");
       setVoiceStatus("会話モード接続中... セットアップ中");
       setupAckTimer = setTimeout(() => {
@@ -2065,8 +2162,7 @@ async function startLiveMode(options = {}) {
     if (canAdoptPrepared) {
       liveActive = true;
       liveSessionStartedAt = Date.now();
-      liveStartButton?.classList.add("live-on");
-      if (liveStopButton) liveStopButton.disabled = false;
+      updateLiveToggleButton();
       setVoiceVideoMode("idle");
       setupCompleted = true;
       beginMicAfterSetup();
@@ -2126,6 +2222,7 @@ async function startLiveMode(options = {}) {
         setupAckTimer = null;
       }
       liveStarting = false;
+      updateLiveToggleButton();
       if (liveStartButton) liveStartButton.disabled = false;
       const reason = event?.message || "不明なエラー";
       setVoiceStatus(`会話モード接続エラー: ${reason}`);
@@ -2155,6 +2252,7 @@ async function startLiveMode(options = {}) {
   } catch (e) {
     clearStartupWatchdog();
     liveStarting = false;
+    updateLiveToggleButton();
     if (liveStartButton) liveStartButton.disabled = false;
     setVoiceStatus(`開始失敗: ${e.message}`);
     scheduleWakeWordListener(350);
@@ -2205,11 +2303,8 @@ function stopLiveMode(sendEnd = true) {
   }
 
   liveActive = false;
-  if (liveStartButton) {
-    liveStartButton.disabled = false;
-    liveStartButton.classList.remove("live-on");
-  }
-  if (liveStopButton) liveStopButton.disabled = true;
+  if (liveStartButton) liveStartButton.disabled = false;
+  updateLiveToggleButton();
 
   setVoiceVideoMode("idle");
   speechVideoEndAt = 0;
@@ -2240,12 +2335,30 @@ function stopLiveMode(sendEnd = true) {
 }
 
 liveStartButton?.addEventListener("click", () => {
-  triggerLiveStart("button");
+  if (liveActive || liveStarting) {
+    localStopReason = "manual_button";
+    stopLiveMode(true);
+    setVoiceStatus("また話しかけてね");
+  } else {
+    triggerLiveStart("button");
+  }
 });
 liveStopButton?.addEventListener("click", () => {
-  localStopReason = "manual_button";
-  stopLiveMode(true);
-  setVoiceStatus("また話しかけてね");
+  setTextModeEnabled(!textModeEnabled);
+});
+textChatForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const text = textChatInput?.value || "";
+  if (!text.trim()) return;
+  if (textChatSendButton) textChatSendButton.disabled = true;
+  try {
+    await sendTextChat(text);
+    if (textChatInput) textChatInput.value = "";
+  } catch (e) {
+    setVoiceStatus(`チャット送信エラー: ${e.message || e}`);
+  } finally {
+    if (textChatSendButton) textChatSendButton.disabled = false;
+  }
 });
 fullscreenButton?.addEventListener("click", () => {
   toggleFullscreen();
@@ -2358,6 +2471,9 @@ window.addEventListener("beforeunload", () => {
   stopMicStreaming({ releaseStream: true });
 });
 
+setTextModeEnabled(false);
+updateLiveToggleButton();
+renderTranscript();
 setVoiceStatus("準備完了。待機中は「もも」で会話モード開始できます。");
 applySavedVoiceSelection();
 loadCharacterConfig().catch(() => {});

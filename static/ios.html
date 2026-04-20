@@ -15,7 +15,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=20260403a" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=20260403a" />
     <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png?v=20260403a" />
-    <link rel="stylesheet" href="/styles.css?v=20260405c" />
+    <link rel="stylesheet" href="/styles.css?v=20260420a" />
     <script>
       (function () {
         var vv = window.visualViewport;
@@ -57,11 +57,21 @@
           <h1>もも</h1>
         </div>
 
+        <div class="hud transcript">
+          <div id="transcriptPanel" class="transcript-panel" aria-label="会話ログ">
+            <div id="transcriptList" class="transcript-list"></div>
+          </div>
+        </div>
+
         <div class="hud bottom">
           <div id="voiceStatus" class="voice-status">準備完了。会話モード開始を押してマイク許可してください。</div>
+          <form id="textChatForm" class="text-chat-form is-hidden" autocomplete="off">
+            <input id="textChatInput" type="text" placeholder="テキストで話しかける..." maxlength="300" />
+            <button id="textChatSendButton" type="submit">送信</button>
+          </form>
           <div class="voice-controls">
             <button id="liveStartButton" type="button">会話モード開始</button>
-            <button id="liveStopButton" type="button" disabled>会話モード停止</button>
+            <button id="liveStopButton" type="button">チャット送信</button>
           </div>
         </div>
 
@@ -71,6 +81,6 @@
       </section>
     </main>
 
-    <script src="/app.js?v=20260415b"></script>
+    <script src="/app.js?v=20260420a"></script>
   </body>
 </html>
