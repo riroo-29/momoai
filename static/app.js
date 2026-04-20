@@ -14,7 +14,6 @@ const voiceStatus = document.getElementById("voiceStatus");
 const fullscreenButton = document.getElementById("fullscreenButton");
 const transcriptPanel = document.getElementById("transcriptPanel");
 const transcriptList = document.getElementById("transcriptList");
-const transcriptToggleButton = document.getElementById("transcriptToggleButton");
 let pseudoFullscreen = false;
 let textModeEnabled = false;
 let transcriptCollapsed = false;
@@ -95,7 +94,6 @@ const MEMORY_PROMPT_FACTS = 18;
 const MEMORY_MAX_TURNS = 180;
 const MEMORY_PROMPT_TURNS = 24;
 const TRANSCRIPT_VISIBLE_TURNS = 36;
-const TRANSCRIPT_UI_STORAGE_KEY = "momo_transcript_ui_v1";
 const NOW_CACHE_MS = 20000;
 const CODEX_STATUS_POLL_MS = 1800;
 const CODEX_STATUS_TIMEOUT_MS = 180000;
@@ -404,32 +402,9 @@ function mapTranscriptDisplayText(turn, text) {
   return normalizeTranscriptDisplayText(text);
 }
 
-function loadTranscriptUiState() {
-  try {
-    const raw = localStorage.getItem(TRANSCRIPT_UI_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return { collapsed: parsed?.collapsed !== false };
-  } catch (_) {
-    return { collapsed: true };
-  }
-}
-
-function saveTranscriptUiState() {
-  try {
-    localStorage.setItem(TRANSCRIPT_UI_STORAGE_KEY, JSON.stringify({ collapsed: transcriptCollapsed }));
-  } catch (_) {
-    // noop
-  }
-}
-
 function setTranscriptCollapsed(collapsed) {
   transcriptCollapsed = !!collapsed;
   if (transcriptPanel) transcriptPanel.classList.toggle("is-collapsed", transcriptCollapsed);
-  if (transcriptToggleButton) {
-    transcriptToggleButton.textContent = "会話ログ";
-    transcriptToggleButton.setAttribute("aria-pressed", transcriptCollapsed ? "false" : "true");
-  }
-  saveTranscriptUiState();
 }
 
 function renderTranscript() {
@@ -1101,6 +1076,7 @@ function setTextModeEnabled(enabled) {
   if (textChatForm) {
     textChatForm.classList.toggle("is-hidden", !textModeEnabled);
   }
+  setTranscriptCollapsed(!textModeEnabled);
   if (liveStopButton) {
     liveStopButton.textContent = textModeEnabled ? "チャット閉じる" : "チャット送信";
   }
@@ -2397,9 +2373,6 @@ liveStartButton?.addEventListener("click", () => {
 liveStopButton?.addEventListener("click", () => {
   setTextModeEnabled(!textModeEnabled);
 });
-transcriptToggleButton?.addEventListener("click", () => {
-  setTranscriptCollapsed(!transcriptCollapsed);
-});
 textChatForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = textChatInput?.value || "";
@@ -2526,7 +2499,6 @@ window.addEventListener("beforeunload", () => {
 });
 
 setTextModeEnabled(false);
-setTranscriptCollapsed(loadTranscriptUiState().collapsed);
 updateLiveToggleButton();
 renderTranscript();
 setVoiceStatus("準備完了。待機中は「もも」で会話モード開始できます。");
