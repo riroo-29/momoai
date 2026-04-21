@@ -167,6 +167,16 @@ const SEARCH_QUERY_PATTERNS = [
   "どこ",
   "いつ",
 ];
+const CALENDAR_QUERY_PATTERNS = [
+  "予定",
+  "スケジュール",
+  "カレンダー",
+  "googleカレンダー",
+  "グーグルカレンダー",
+  "今日の予定",
+  "明日の予定",
+  "今週の予定",
+];
 const CODE_QUERY_PATTERNS = [
   "コード",
   "プログラム",
@@ -818,6 +828,12 @@ function isSearchQuestion(text) {
   return SEARCH_QUERY_PATTERNS.some((p) => normalized.includes(normalizeSpeechText(p)));
 }
 
+function isCalendarQuestion(text) {
+  const normalized = normalizeSpeechText(text);
+  if (!normalized) return false;
+  return CALENDAR_QUERY_PATTERNS.some((p) => normalized.includes(normalizeSpeechText(p)));
+}
+
 function isCodeRequest(text) {
   const normalized = normalizeSpeechText(text);
   if (!normalized) return false;
@@ -930,6 +946,42 @@ async function fetchGoogleSearchInfo(query) {
   return data;
 }
 
+function extractCalendarQuery(text) {
+  return (text || "")
+    .replace(/(google\s*calendar|googleカレンダー|グーグルカレンダー|カレンダー|予定|スケジュール|確認|教えて)/gi, "")
+    .replace(/^(ねえ|もも|えっと|あの)\s*/g, "")
+    .replace(/[?？!！。]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function fetchCalendarInfo(query) {
+  const q = String(query || "").trim() || "今日";
+  const url = `/api/calendar?q=${encodeURIComponent(q)}`;
+  const res = await fetch(url, { cache: "no-store" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || "カレンダー取得に失敗しました");
+  return data;
+}
+
+function buildCalendarAssistInstruction(userQuestion, calendarResult) {
+  const summary = String(calendarResult?.summary || "").trim() || "予定はありません";
+  const lines = Array.isArray(calendarResult?.items)
+    ? calendarResult.items.slice(0, 5).map((it, idx) => {
+        const s = String(it?.start || "");
+        const hhmm = s.includes("T") ? s.split("T")[1].slice(0, 5) : "終日";
+        return `${idx + 1}. ${hhmm} ${it?.summary || "(無題)"}`;
+      })
+    : [];
+  return [
+    "ユーザーがカレンダー予定を質問しました。次の情報だけを使って簡潔に返答してください。",
+    `質問: ${userQuestion}`,
+    `要約: ${summary}`,
+    `予定一覧: ${lines.join(" / ") || "なし"}`,
+    "返答は2文以内。",
+  ].join("\n");
+}
+
 function buildSearchAssistInstruction(userQuestion, searchResult) {
   const sources = (searchResult.sources || [])
     .slice(0, 3)
@@ -968,12 +1020,13 @@ async function maybeHandleUtilityIntent(inputText) {
   lastUtilityAt = nowMs;
 
   const wantsNow = isNowQuestion(text);
-  const wantsSearch = isSearchQuestion(text) && !wantsNow;
-  const wantsCode = isCodeRequest(text) && !wantsNow && !wantsSearch;
-  const codexRequested = !wantsNow && !wantsSearch && !wantsCode && isCodexRequest(text) ? true : false;
+  const wantsCalendar = isCalendarQuestion(text) && !wantsNow;
+  const wantsSearch = isSearchQuestion(text) && !wantsNow && !wantsCalendar;
+  const wantsCode = isCodeRequest(text) && !wantsNow && !wantsCalendar && !wantsSearch;
+  const codexRequested = !wantsNow && !wantsCalendar && !wantsSearch && !wantsCode && isCodexRequest(text) ? true : false;
   const codexTask = codexRequested ? extractCodexTask(text) : "";
   const wantsCodex = codexRequested;
-  if (!wantsNow && !wantsSearch && !wantsCode && !wantsCodex) return;
+  if (!wantsNow && !wantsCalendar && !wantsSearch && !wantsCode && !wantsCodex) return;
 
   utilityInFlight = true;
   try {
@@ -1006,6 +1059,14 @@ async function maybeHandleUtilityIntent(inputText) {
       return;
     }
 
+    if (wantsCalendar) {
+      const query = extractCalendarQuery(text) || text;
+      const result = await fetchCalendarInfo(query);
+      if (!liveActive) return;
+      sendOneShotInstruction(buildCalendarAssistInstruction(text, result));
+      return;
+    }
+
     if (wantsSearch) {
       const query = extractSearchQuery(text) || text;
       const result = await fetchGoogleSearchInfo(query);
@@ -1020,7 +1081,8 @@ async function maybeHandleUtilityIntent(inputText) {
       return;
     }
   } catch (e) {
-    if (wantsSearch) setVoiceStatus(`検索補助エラー: ${e?.message || e}`);
+    if (wantsCalendar) setVoiceStatus(`カレンダー補助エラー: ${e?.message || e}`);
+    else if (wantsSearch) setVoiceStatus(`検索補助エラー: ${e?.message || e}`);
     else if (wantsCode) setVoiceStatus(`コード補助エラー: ${e?.message || e}`);
     else if (wantsCodex) setVoiceStatus(`Codex依頼エラー: ${e?.message || e}`);
     else setVoiceStatus(`時刻補助エラー: ${e?.message || e}`);
@@ -1080,7 +1142,8 @@ async function sendTextChat(message) {
   rememberUserFact(text);
 
   const wantsNow = isNowQuestion(text);
-  const wantsSearch = isSearchQuestion(text) && !wantsNow;
+  const wantsCalendar = isCalendarQuestion(text) && !wantsNow;
+  const wantsSearch = isSearchQuestion(text) && !wantsNow && !wantsCalendar;
 
   if (liveActive && liveSocket && liveSocket.readyState === WebSocket.OPEN) {
     liveSocket.send(
@@ -1100,6 +1163,15 @@ async function sendTextChat(message) {
     const reply = `現在は ${nowInfo.nowJst}（${nowInfo.timezone}）です。`;
     appendConversationTurn("assistant", reply, { displayTextOverride: reply, forceDisplay: true });
     setVoiceStatus("時刻を返したよ。");
+    return;
+  }
+
+  if (wantsCalendar) {
+    const query = extractCalendarQuery(text) || text;
+    const result = await fetchCalendarInfo(query);
+    const reply = String(result?.summary || "").trim() || "予定を取得できませんでした。";
+    appendConversationTurn("assistant", reply, { displayTextOverride: reply, forceDisplay: true });
+    setVoiceStatus("カレンダー結果を返したよ。");
     return;
   }
 

@@ -7,7 +7,7 @@ import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib import error, request
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse, urlencode
 from datetime import datetime, timezone, timedelta
 
 HOST = os.getenv("HOST", "127.0.0.1")
@@ -18,6 +18,11 @@ GEMINI_LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-previe
 LOCAL_TOOL_MODE = os.getenv("LOCAL_TOOL_MODE", "1") == "1"
 CODEX_BRIDGE_URL = os.getenv("CODEX_BRIDGE_URL", "").strip()
 CODEX_BRIDGE_TOKEN = os.getenv("CODEX_BRIDGE_TOKEN", "").strip()
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "").strip()
+GOOGLE_CALENDAR_REFRESH_TOKEN = os.getenv("GOOGLE_CALENDAR_REFRESH_TOKEN", "").strip()
+GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID", "primary").strip() or "primary"
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
@@ -208,6 +213,178 @@ def build_now_info() -> dict:
     }
 
 
+def build_calendar_auth_url(origin: str, state: str = "") -> str:
+    if not GOOGLE_CLIENT_ID:
+        raise RuntimeError("GOOGLE_CLIENT_ID が未設定です")
+    redirect_uri = GOOGLE_REDIRECT_URI or f"{origin}/api/calendar-token"
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events",
+        "access_type": "offline",
+        "prompt": "consent",
+    }
+    if state:
+        params["state"] = state
+    return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
+
+
+def get_google_access_token() -> str:
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not GOOGLE_CALENDAR_REFRESH_TOKEN:
+        raise RuntimeError(
+            "Google Calendar未設定です（GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_CALENDAR_REFRESH_TOKEN）"
+        )
+    payload = urlencode(
+        {
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "refresh_token": GOOGLE_CALENDAR_REFRESH_TOKEN,
+            "grant_type": "refresh_token",
+        }
+    ).encode("utf-8")
+    req = request.Request(
+        "https://oauth2.googleapis.com/token",
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=30) as res:
+            data = json.loads(res.read().decode("utf-8"))
+    except error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Google token取得失敗 ({e.code}): {detail}") from e
+    except Exception as e:
+        raise RuntimeError(f"Google token取得失敗: {e}") from e
+    token = (data.get("access_token") or "").strip()
+    if not token:
+        raise RuntimeError(f"Google access_token が取得できません: {data}")
+    return token
+
+
+def exchange_google_code(code: str, origin: str) -> dict:
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise RuntimeError("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET が未設定です")
+    redirect_uri = GOOGLE_REDIRECT_URI or f"{origin}/api/calendar-token"
+    payload = urlencode(
+        {
+            "code": code,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+        }
+    ).encode("utf-8")
+    req = request.Request(
+        "https://oauth2.googleapis.com/token",
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=30) as res:
+            return json.loads(res.read().decode("utf-8"))
+    except error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Google token交換失敗 ({e.code}): {detail}") from e
+    except Exception as e:
+        raise RuntimeError(f"Google token交換失敗: {e}") from e
+
+
+def parse_calendar_range(query: str) -> dict:
+    q = (query or "").strip()
+    jst = timezone(timedelta(hours=9))
+    now = datetime.now(jst)
+
+    def day_range(offset: int, label: str) -> dict:
+        day = (now + timedelta(days=offset)).date()
+        d = day.isoformat()
+        return {
+            "label": label,
+            "start": f"{d}T00:00:00+09:00",
+            "end": f"{d}T23:59:59+09:00",
+        }
+
+    if not q or "今日" in q:
+        return day_range(0, "今日")
+    if "明日" in q:
+        return day_range(1, "明日")
+    if "明後日" in q or "あさって" in q:
+        return day_range(2, "明後日")
+    if "今週" in q:
+        start = now.date().isoformat()
+        end = (now + timedelta(days=6)).date().isoformat()
+        return {
+            "label": "今週",
+            "start": f"{start}T00:00:00+09:00",
+            "end": f"{end}T23:59:59+09:00",
+        }
+    return day_range(0, "今日")
+
+
+def fetch_calendar_events(query: str) -> dict:
+    token = get_google_access_token()
+    r = parse_calendar_range(query)
+    params = urlencode(
+        {
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "timeMin": r["start"],
+            "timeMax": r["end"],
+            "maxResults": "20",
+        }
+    )
+    endpoint = f"https://www.googleapis.com/calendar/v3/calendars/{quote(GOOGLE_CALENDAR_ID, safe='')}/events?{params}"
+    req = request.Request(
+        endpoint,
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
+    try:
+        with request.urlopen(req, timeout=30) as res:
+            body = json.loads(res.read().decode("utf-8"))
+    except error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Google Calendar取得失敗 ({e.code}): {detail}") from e
+    except Exception as e:
+        raise RuntimeError(f"Google Calendar取得失敗: {e}") from e
+
+    items = []
+    for ev in body.get("items", []):
+        start = ev.get("start", {}).get("dateTime") or ev.get("start", {}).get("date") or ""
+        end = ev.get("end", {}).get("dateTime") or ev.get("end", {}).get("date") or ""
+        items.append(
+            {
+                "id": ev.get("id", ""),
+                "summary": ev.get("summary") or "(無題)",
+                "start": start,
+                "end": end,
+                "location": ev.get("location", ""),
+                "description": ev.get("description", ""),
+                "htmlLink": ev.get("htmlLink", ""),
+            }
+        )
+    if not items:
+        summary = f"{r['label']}の予定はありません"
+    else:
+        lines = []
+        for i, it in enumerate(items[:5], start=1):
+            st = str(it.get("start") or "")
+            hhmm = st.split("T")[1][:5] if "T" in st else "終日"
+            lines.append(f"{i}. {hhmm} {it.get('summary')}")
+        summary = f"{r['label']}の予定は{len(items)}件\n" + "\n".join(lines)
+
+    return {
+        "ok": True,
+        "label": r["label"],
+        "timezone": "Asia/Tokyo",
+        "range": {"start": r["start"], "end": r["end"]},
+        "items": items,
+        "summary": summary,
+    }
+
+
 def is_allowed_command(parts: list[str]) -> bool:
     if not parts:
         return False
@@ -358,6 +535,48 @@ class AppHandler(SimpleHTTPRequestHandler):
                 self.respond_json(500, {"error": str(e)})
             return
 
+        if self.path == "/api/calendar":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                data = self.rfile.read(length)
+                payload = json.loads(data.decode("utf-8"))
+                summary = (payload.get("summary") or "").strip()
+                start = (payload.get("start") or "").strip()
+                end = (payload.get("end") or "").strip()
+                tz = (payload.get("timezone") or "Asia/Tokyo").strip() or "Asia/Tokyo"
+                description = (payload.get("description") or "").strip()
+                location = (payload.get("location") or "").strip()
+                if not summary or not start or not end:
+                    self.respond_json(400, {"error": "summary/start/end は必須です"})
+                    return
+                token = get_google_access_token()
+                event_payload = {
+                    "summary": summary,
+                    "description": description,
+                    "location": location,
+                    "start": {"dateTime": start, "timeZone": tz},
+                    "end": {"dateTime": end, "timeZone": tz},
+                }
+                endpoint = f"https://www.googleapis.com/calendar/v3/calendars/{quote(GOOGLE_CALENDAR_ID, safe='')}/events"
+                req = request.Request(
+                    endpoint,
+                    data=json.dumps(event_payload).encode("utf-8"),
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    },
+                    method="POST",
+                )
+                with request.urlopen(req, timeout=30) as res:
+                    body = json.loads(res.read().decode("utf-8"))
+                self.respond_json(200, {"ok": True, "event": body, "message": "予定を作成しました"})
+            except error.HTTPError as e:
+                detail = e.read().decode("utf-8", errors="ignore")
+                self.respond_json(500, {"error": f"Google Calendar作成失敗 ({e.code}): {detail}"})
+            except Exception as e:
+                self.respond_json(500, {"error": str(e)})
+            return
+
         if self.path == "/api/tools/open":
             if not LOCAL_TOOL_MODE:
                 self.respond_json(403, {"error": "LOCAL_TOOL_MODE が無効です"})
@@ -442,6 +661,57 @@ class AppHandler(SimpleHTTPRequestHandler):
                 return
             try:
                 result = call_gemini_google_search(q)
+                self.respond_json(200, result)
+            except Exception as e:
+                self.respond_json(500, {"error": str(e)})
+            return
+        if parsed.path == "/api/calendar-auth-url":
+            params = parse_qs(parsed.query)
+            state = (params.get("state", [""])[0] or "").strip()
+            origin = f"http://{self.headers.get('Host', f'{HOST}:{PORT}')}"
+            try:
+                auth_url = build_calendar_auth_url(origin, state)
+                self.respond_json(
+                    200,
+                    {
+                        "ok": True,
+                        "authUrl": auth_url,
+                        "redirectUri": GOOGLE_REDIRECT_URI or f"{origin}/api/calendar-token",
+                    },
+                )
+            except Exception as e:
+                self.respond_json(500, {"error": str(e)})
+            return
+        if parsed.path == "/api/calendar-token":
+            params = parse_qs(parsed.query)
+            code = (params.get("code", [""])[0] or "").strip()
+            if not code:
+                self.respond_json(400, {"error": "code が必要です"})
+                return
+            origin = f"http://{self.headers.get('Host', f'{HOST}:{PORT}')}"
+            try:
+                token = exchange_google_code(code, origin)
+                refresh_token = (token.get("refresh_token") or "").strip()
+                self.respond_json(
+                    200,
+                    {
+                        "ok": True,
+                        "refreshToken": refresh_token,
+                        "scope": token.get("scope", ""),
+                        "expiresIn": token.get("expires_in"),
+                        "message": "この refreshToken を GOOGLE_CALENDAR_REFRESH_TOKEN に設定してください",
+                    },
+                )
+            except Exception as e:
+                self.respond_json(500, {"error": str(e)})
+            return
+        if parsed.path == "/api/calendar":
+            params = parse_qs(parsed.query)
+            mode = (params.get("mode", [""])[0] or "").strip()
+            q = (params.get("q", [""])[0] or "").strip()
+            query = "今日" if mode == "today" else q
+            try:
+                result = fetch_calendar_events(query)
                 self.respond_json(200, result)
             except Exception as e:
                 self.respond_json(500, {"error": str(e)})

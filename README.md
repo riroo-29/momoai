@@ -74,6 +74,35 @@ CODEX_BRIDGE_TOKEN=your-strong-token
 - 初期セリフ: `static/app.js`
 - Live2Dデータ配置: `static/live2d/README.md`
 
+## Googleカレンダー連携
+
+Momoから「今日の予定」「明日の予定」「今週の予定」などを取得できます。
+
+### 必要な環境変数
+
+```bash
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_REDIRECT_URI=...   # 省略可（未設定時は /api/calendar-token を自動使用）
+GOOGLE_CALENDAR_REFRESH_TOKEN=...
+GOOGLE_CALENDAR_ID=primary
+```
+
+### 初回連携フロー（refresh token取得）
+
+1. `GET /api/calendar-auth-url` を開いて `authUrl` を取得  
+2. `authUrl` をブラウザで開いてGoogle認可  
+3. リダイレクト先URLの `code` を取得  
+4. `GET /api/calendar-token?code=...` を実行  
+5. 返ってきた `refreshToken` を `GOOGLE_CALENDAR_REFRESH_TOKEN` に設定
+
+### API
+
+- `GET /api/calendar?q=今日の予定`
+- `GET /api/calendar?mode=today`
+- `POST /api/calendar`（予定作成）
+  - body: `summary`, `start`, `end` 必須
+
 ## 5. 恒久公開URL（Cloudflare Tunnel）
 
 1. Cloudflare Zero Trust で Named Tunnel を作成し、`tunnel token` を取得する  
