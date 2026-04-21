@@ -355,14 +355,18 @@ function maybeLearnCharacterPreference(text) {
   return changed;
 }
 
-function appendConversationTurn(role, text) {
+function appendConversationTurn(role, text, options = {}) {
   const content = (text || "").trim();
   if (!content) return;
   if (content.length < 2) return;
   const now = Date.now();
   const turns = Array.isArray(growthMemory.turns) ? growthMemory.turns : [];
   const normalized = normalizeMemoryText(content);
-  const displayText = buildTranscriptDisplayText(role, content);
+  const displayTextOverride = String(options?.displayTextOverride || "").trim();
+  let displayText = displayTextOverride || buildTranscriptDisplayText(role, content);
+  if (!displayText && options?.forceDisplay) {
+    displayText = normalizeTranscriptDisplayText(content);
+  }
   const last = turns.length > 0 ? turns[turns.length - 1] : null;
   if (last && last.role === role) {
     const lastText = String(last.text || "");
@@ -471,6 +475,21 @@ function buildTranscriptDisplayText(role, text) {
 
   if (resultOnly.length === 0) return "";
   return resultOnly.slice(-5).join("\n").trim();
+}
+
+function buildChatResultDisplay(text) {
+  const normalized = normalizeTranscriptDisplayText(text);
+  if (!normalized) return "";
+  const rankingLines = extractRankingLines(normalized);
+  if (rankingLines.length > 0) return rankingLines.join("\n");
+  const weatherLine = extractWeatherResultLine(normalized);
+  if (weatherLine) return weatherLine;
+  const filtered = buildTranscriptDisplayText("assistant", normalized);
+  if (filtered) return filtered;
+  return normalized
+    .split(/\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean)[0] || normalized;
 }
 
 function extractRankingLines(text) {
@@ -1232,7 +1251,8 @@ async function sendTextChat(message) {
   if (!res.ok) throw new Error(data?.error || `送信失敗(${res.status})`);
   const reply = String(data?.reply || "").trim();
   if (reply) {
-    appendConversationTurn("assistant", reply);
+    const displayText = buildChatResultDisplay(reply);
+    appendConversationTurn("assistant", reply, { displayTextOverride: displayText, forceDisplay: true });
     setVoiceStatus("返信したよ。");
   }
 }
