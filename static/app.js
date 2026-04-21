@@ -184,8 +184,6 @@ const CODE_QUERY_PATTERNS = [
   "react",
   "node",
 ];
-const LAUNCH_VERBS = ["開いて", "ひらいて", "開く", "起動して", "起動", "開いてくれる", "開いてほしい"];
-const EXEC_VERBS = ["実行して", "実行", "走らせて", "runして", "run して"];
 const CODEX_REQUEST_PATTERNS = [
   "codexに",
   "コーデックスに",
@@ -205,27 +203,6 @@ const CODEX_REQUEST_PATTERNS = [
   "コードエックス",
   "こーでっくす",
 ];
-const LAUNCH_TARGETS = [
-  {
-    name: "Instagram",
-    keys: ["インスタ", "instagram", "インスタグラム"],
-    schemeUrl: "instagram://app",
-    webUrl: "https://www.instagram.com/",
-  },
-  {
-    name: "LINE",
-    keys: ["line", "ライン"],
-    schemeUrl: "line://",
-    webUrl: "https://line.me/",
-  },
-  {
-    name: "YouTube",
-    keys: ["youtube", "ユーチューブ", "ようつべ"],
-    schemeUrl: "youtube://",
-    webUrl: "https://www.youtube.com/",
-  },
-];
-
 function buildDefaultMemory() {
   return {
     version: 1,
@@ -847,27 +824,6 @@ function isCodeRequest(text) {
   return CODE_QUERY_PATTERNS.some((p) => normalized.includes(normalizeSpeechText(p)));
 }
 
-function getLaunchTarget(text) {
-  const normalized = normalizeSpeechText(text);
-  if (!normalized) return null;
-  const hasVerb = LAUNCH_VERBS.some((v) => normalized.includes(normalizeSpeechText(v)));
-  if (!hasVerb) return null;
-  return LAUNCH_TARGETS.find((t) => t.keys.some((k) => normalized.includes(normalizeSpeechText(k)))) || null;
-}
-
-function extractExecCommand(text) {
-  const raw = (text || "").trim();
-  if (!raw) return "";
-  const normalized = normalizeSpeechText(raw);
-  const hasVerb = EXEC_VERBS.some((v) => normalized.includes(normalizeSpeechText(v)));
-  if (!hasVerb) return "";
-  const m = raw.match(/(?:コマンド|command)\s*[:：]?\s*(.+?)\s*(?:を)?(?:実行して|実行|走らせて|runして|run して)?$/i);
-  if (m?.[1]) return m[1].trim();
-  const m2 = raw.match(/^(?:ローカルで|端末で|ターミナルで)\s*(.+?)\s*(?:を)?(?:実行して|実行|走らせて)$/);
-  if (m2?.[1]) return m2[1].trim();
-  return "";
-}
-
 function isCodexRequest(text) {
   const normalized = normalizeSpeechText(text);
   if (!normalized) return false;
@@ -883,39 +839,6 @@ function extractCodexTask(text) {
     .replace(/(お願い|依頼|頼む|して)\s*$/i, "")
     .trim();
   return cleaned;
-}
-
-async function openViaLocalToolApi(target) {
-  if (!target?.schemeUrl && !target?.webUrl) return false;
-  const tryUrls = [target.schemeUrl, target.webUrl].filter(Boolean);
-  for (const u of tryUrls) {
-    try {
-      const res = await fetch("/api/tools/open", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: u }),
-      });
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (data?.ok) return true;
-    } catch (_) {
-      // noop
-    }
-  }
-  return false;
-}
-
-async function execViaLocalToolApi(command) {
-  const cmd = (command || "").trim();
-  if (!cmd) return null;
-  const res = await fetch("/api/tools/exec", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ command: cmd }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error || `exec failed (${res.status})`);
-  return data?.result || null;
 }
 
 async function dispatchCodexTask(task) {
@@ -990,41 +913,6 @@ async function trackCodexTaskAndReport(taskId) {
   }
 }
 
-function openExternalUrl(url) {
-  if (!url) return false;
-  try {
-    const w = window.open(url, "_blank", "noopener,noreferrer");
-    if (w) return true;
-  } catch (_) {
-    // noop
-  }
-  try {
-    window.location.assign(url);
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
-async function launchTargetWithFallback(target) {
-  if (!target) return false;
-  const openedLocal = await openViaLocalToolApi(target);
-  if (openedLocal) return true;
-
-  const openedScheme = target.schemeUrl ? openExternalUrl(target.schemeUrl) : false;
-  // スキームが無効/未インストール時はWebへフォールバック
-  if (!openedScheme && target.webUrl) {
-    return openExternalUrl(target.webUrl);
-  }
-  if (target.webUrl) {
-    setTimeout(() => {
-      // 一部ブラウザではカスタムスキームが失敗しても例外にならないため、保険でWeb版を再試行
-      openExternalUrl(target.webUrl);
-    }, 1200);
-  }
-  return openedScheme;
-}
-
 function extractSearchQuery(text) {
   return (text || "")
     .replace(/(検索して|検索|調べて|しらべて|ググって|ググると|教えて|最新の|最新)/g, "")
@@ -1082,45 +970,13 @@ async function maybeHandleUtilityIntent(inputText) {
   const wantsNow = isNowQuestion(text);
   const wantsSearch = isSearchQuestion(text) && !wantsNow;
   const wantsCode = isCodeRequest(text) && !wantsNow && !wantsSearch;
-  const launchTarget = !wantsNow && !wantsSearch && !wantsCode ? getLaunchTarget(text) : null;
-  const execCommand = !wantsNow && !wantsSearch && !wantsCode && !launchTarget ? extractExecCommand(text) : "";
-  const codexRequested =
-    !wantsNow && !wantsSearch && !wantsCode && !launchTarget && !execCommand && isCodexRequest(text)
-      ? true
-      : false;
-  const codexTask =
-    codexRequested
-      ? extractCodexTask(text)
-      : "";
-  const wantsLaunch = !!launchTarget;
-  const wantsExec = !!execCommand;
+  const codexRequested = !wantsNow && !wantsSearch && !wantsCode && isCodexRequest(text) ? true : false;
+  const codexTask = codexRequested ? extractCodexTask(text) : "";
   const wantsCodex = codexRequested;
-  if (!wantsNow && !wantsSearch && !wantsCode && !wantsLaunch && !wantsExec && !wantsCodex) return;
+  if (!wantsNow && !wantsSearch && !wantsCode && !wantsCodex) return;
 
   utilityInFlight = true;
   try {
-    if (wantsLaunch) {
-      const ok = await launchTargetWithFallback(launchTarget);
-      setVoiceStatus(
-        ok
-          ? `${launchTarget.name}を開くね。`
-          : `${launchTarget.name}を開けなかった。ブラウザ設定を確認してね。`,
-      );
-      return;
-    }
-
-    if (wantsExec) {
-      const result = await execViaLocalToolApi(execCommand);
-      if (result?.returnCode === 0) {
-        const preview = (result.stdout || "実行完了").split("\n").slice(0, 2).join(" / ");
-        setVoiceStatus(`実行完了: ${preview}`);
-      } else {
-        const err = (result?.stderr || `終了コード ${result?.returnCode ?? "?"}`).split("\n")[0];
-        setVoiceStatus(`実行失敗: ${err}`);
-      }
-      return;
-    }
-
     if (wantsCodex) {
       if (!codexTask) {
         setVoiceStatus("Codexへの依頼内容をもう一度言ってね。例:「CodexにREADME改善して」");
@@ -1166,8 +1022,6 @@ async function maybeHandleUtilityIntent(inputText) {
   } catch (e) {
     if (wantsSearch) setVoiceStatus(`検索補助エラー: ${e?.message || e}`);
     else if (wantsCode) setVoiceStatus(`コード補助エラー: ${e?.message || e}`);
-    else if (wantsLaunch) setVoiceStatus(`起動補助エラー: ${e?.message || e}`);
-    else if (wantsExec) setVoiceStatus(`実行補助エラー: ${e?.message || e}`);
     else if (wantsCodex) setVoiceStatus(`Codex依頼エラー: ${e?.message || e}`);
     else setVoiceStatus(`時刻補助エラー: ${e?.message || e}`);
   } finally {
