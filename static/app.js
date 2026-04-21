@@ -1225,6 +1225,9 @@ async function sendTextChat(message) {
   appendConversationTurn("user", text);
   rememberUserFact(text);
 
+  const wantsNow = isNowQuestion(text);
+  const wantsSearch = isSearchQuestion(text) && !wantsNow;
+
   if (liveActive && liveSocket && liveSocket.readyState === WebSocket.OPEN) {
     liveSocket.send(
       JSON.stringify({
@@ -1235,6 +1238,24 @@ async function sendTextChat(message) {
       }),
     );
     setVoiceStatus("送信したよ。");
+    return;
+  }
+
+  if (wantsNow) {
+    const nowInfo = await fetchNowInfo(true);
+    const reply = `現在は ${nowInfo.nowJst}（${nowInfo.timezone}）です。`;
+    appendConversationTurn("assistant", reply, { displayTextOverride: reply, forceDisplay: true });
+    setVoiceStatus("時刻を返したよ。");
+    return;
+  }
+
+  if (wantsSearch) {
+    const query = extractSearchQuery(text) || text;
+    const result = await fetchGoogleSearchInfo(query);
+    const reply = String(result?.summary || "").trim() || "検索結果を取得できませんでした。";
+    const display = buildChatResultDisplay(reply);
+    appendConversationTurn("assistant", reply, { displayTextOverride: display, forceDisplay: true });
+    setVoiceStatus("検索結果を返したよ。");
     return;
   }
 
