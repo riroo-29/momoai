@@ -54,9 +54,58 @@ function buildUserText(message, history) {
   );
 }
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetry(status, data) {
+  if ([429, 500, 502, 503, 504].includes(status)) return true;
+  const txt = JSON.stringify(data || {}).toLowerCase();
+  return txt.includes("unavailable") || txt.includes("high demand");
+}
+
+async function requestGemini({ apiKey, model, payload }) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  let res;
+  try {
+    res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    return { ok: false, status: 0, data: { error: String(e?.message || e) } };
+  }
+
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    const text = await res.text();
+    data = { raw: text };
+  }
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function callGeminiWithRetry({ apiKey, models, payload }) {
+  let last = null;
+  for (const model of models) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const result = await requestGemini({ apiKey, model, payload });
+      if (result.ok) return { ...result, model };
+      last = { ...result, model, attempt };
+      if (!shouldRetry(result.status, result.data) || attempt === 3) break;
+      await wait(250 * attempt); // 250ms -> 500ms
+    }
+  }
+  return last;
+}
+
 export async function onRequestPost(context) {
   const apiKey = context.env.GEMINI_API_KEY || "";
   const model = context.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const fallback = (context.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash-lite").trim();
+  const models = [...new Set([model, fallback].filter(Boolean))];
 
   if (!apiKey) return json({ error: "GEMINI_API_KEY が未設定です。" }, 500);
 
@@ -78,34 +127,26 @@ export async function onRequestPost(context) {
     generationConfig: { temperature: 0.8 },
   };
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  let res;
-  try {
-    res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  } catch (e) {
-    return json({ error: `Gemini API request failed: ${e?.message || e}` }, 500);
+  const result = await callGeminiWithRetry({ apiKey, models, payload });
+  if (!result || !result.ok) {
+    const status = result?.status || 500;
+    const raw = JSON.stringify(result?.data || {});
+    if (status === 503 || shouldRetry(status, result?.data)) {
+      return json(
+        {
+          error:
+            "Gemini が一時的に混雑しています。数秒おいて再度送信してください。",
+          detail: `Gemini API error (${status})`,
+        },
+        503,
+      );
+    }
+    return json({ error: `Gemini API error (${status}): ${raw}` }, 500);
   }
 
-  let data;
-  try {
-    data = await res.json();
-  } catch {
-    const text = await res.text();
-    return json({ error: `Gemini API error (${res.status}): ${text}` }, 500);
-  }
-
-  if (!res.ok) {
-    return json({ error: `Gemini API error (${res.status}): ${JSON.stringify(data)}` }, 500);
-  }
-
-  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const parts = result?.data?.candidates?.[0]?.content?.parts || [];
   const reply = parts.map((p) => p?.text || "").join("").trim();
   if (!reply) return json({ error: "Gemini response からテキストを抽出できませんでした。" }, 500);
 
-  return json({ reply, model });
+  return json({ reply, model: result.model });
 }
